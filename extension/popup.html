@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion</title>
+    <link rel="stylesheet" href="css/popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AI Companion</h1>
+            <div class="settings-icon" id="settingsButton">⚙️</div>
+        </div>
+        
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-content">
+                <h2>Settings</h2>
+                <div class="setting-item">
+                    <label for="serverUrl">Ollama Server URL:</label>
+                    <input type="text" id="serverUrl" placeholder="http://localhost:11434">
+                </div>
+                <div class="setting-item">
+                    <label for="modelSelect">Model:</label>
+                    <select id="modelSelect">
+                        <option value="llama2">Llama 2</option>
+                        <option value="mistral">Mistral</option>
+                        <option value="gemma">Gemma</option>
+                    </select>
+                </div>
+                <div class="setting-item">
+                    <button id="saveSettings">Save Settings</button>
+                </div>
+                <div class="setting-item">
+                    <button id="refreshModels">Refresh Available Models</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <!-- Chat messages will be inserted here -->
+        </div>
+
+        <div class="input-container">
+            <textarea id="userInput" placeholder="Type your message here..."></textarea>
+            <button id="sendButton">Send</button>
+        </div>
+
+        <div class="status-bar">
+            <span id="statusIndicator" class="status-indicator offline"></span>
+            <span id="statusText">Disconnected</span>
+        </div>
+    </div>
+
+    <script src="js/popup.js"></script>
+</body>
+</html>
