@@ -128,21 +128,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Handle error response from the server
                     console.error('Error connecting to Ollama server:', response.data);
                     
-                    let statusMessage = `Error: ${response.data.status}`;
+                    let statusMessage = `Limited mode: ${response.data.status}`;
                     if (response.data.status === 403) {
-                        statusMessage = 'Access forbidden';
+                        statusMessage = 'Limited mode (Access forbidden)';
                     } else if (response.data.status === 404) {
-                        statusMessage = 'API not found';
+                        statusMessage = 'Limited mode (API not found)';
                     } else if (response.data.status >= 500) {
-                        statusMessage = 'Server error';
+                        statusMessage = 'Limited mode (Server error)';
                     }
                     
-                    updateStatus('offline', statusMessage);
+                    // Still set status to "online" but with a warning message
+                    updateStatus('online', statusMessage);
+                    
+                    // Populate with default models since we couldn't fetch them
+                    populateModelSelect([]);
                 }
             } else {
                 // Handle error in the proxy request
                 console.error('Error connecting to Ollama server:', response.error);
-                updateStatus('offline', 'Cannot reach server');
+                
+                // Still set status to "online" but in limited mode
+                updateStatus('online', 'Limited mode (Server unavailable)');
+                
+                // Populate with default models since we couldn't fetch them
+                populateModelSelect([]);
             }
         });
     }
@@ -181,26 +190,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     } catch (e) {
                         console.error('Error parsing model data:', e);
                         updateStatus('online', 'Error parsing models');
+                        populateModelSelect([]);
                     }
                 } else {
                     // Handle error response from the server
                     console.error('Error fetching models:', response.data);
                     
-                    let statusMessage = `Error: ${response.data.status}`;
+                    let statusMessage = `Limited mode: ${response.data.status}`;
                     if (response.data.status === 403) {
-                        statusMessage = 'Access forbidden';
+                        statusMessage = 'Limited mode (Access forbidden)';
                     } else if (response.data.status === 404) {
-                        statusMessage = 'API not found';
+                        statusMessage = 'Limited mode (API not found)';
                     } else if (response.data.status >= 500) {
-                        statusMessage = 'Server error';
+                        statusMessage = 'Limited mode (Server error)';
                     }
                     
-                    updateStatus('offline', statusMessage);
+                    // Still set status to "online" but with a warning message
+                    updateStatus('online', statusMessage);
+                    populateModelSelect([]);
                 }
             } else {
                 // Handle error in the proxy request
                 console.error('Error fetching models:', response.error);
-                updateStatus('offline', 'Cannot reach server');
+                updateStatus('online', 'Limited mode (Server unavailable)');
+                populateModelSelect([]);
             }
         });
     }
@@ -410,7 +423,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => {
             console.error('Streaming error:', error);
             messageText.innerHTML = `<span style="color: #721c24;">Error: ${error.message}</span>`;
-            updateStatus('offline', 'Error: ' + error.message);
+            updateStatus('online', 'Limited mode (Streaming error)');
         });
     }
     
@@ -465,7 +478,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         appendMessage('ai', errorMessage, errorTimestamp);
-        updateStatus('offline', 'Error: ' + error.message);
+        updateStatus('online', 'Limited mode (Error occurred)');
     }
 
     // Function to remove <think>blah</think> blocks from text
