@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener(function() {
     });
 });
 
-// Listen for messages from the popup
+// Listen for messages from the popup and content scripts
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     console.log('Background script received message:', request);
     
@@ -40,6 +40,51 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
                 console.error('Proxy error:', error);
                 sendResponse({ success: false, error: error.message });
             });
+        return true; // Required for async sendResponse
+    } else if (request.action === 'grammarCheck') {
+        // Handle grammar check requests from content script
+        console.log('Grammar check request received:', request.mode);
+        
+        // Get settings
+        chrome.storage.local.get(['settings'], function(result) {
+            const settings = result.settings || {
+                serverUrl: 'http://localhost:11434',
+                model: 'llama2'
+            };
+            
+            // Send to Ollama for processing
+            proxyOllamaRequest(
+                `${settings.serverUrl}/api/generate`,
+                'POST',
+                {
+                    model: settings.model,
+                    prompt: request.prompt,
+                    stream: false
+                }
+            )
+            .then(response => {
+                console.log('Grammar check response:', response);
+                if (response.status === 200) {
+                    sendResponse({ 
+                        success: true, 
+                        result: response.data.response 
+                    });
+                } else {
+                    sendResponse({ 
+                        success: false, 
+                        error: `Server returned ${response.status}: ${response.statusText}` 
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Grammar check error:', error);
+                sendResponse({ 
+                    success: false, 
+                    error: error.message || 'Unknown error occurred' 
+                });
+            });
+        });
+        
         return true; // Required for async sendResponse
     }
 });

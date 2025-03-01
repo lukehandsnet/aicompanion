@@ -8,6 +8,9 @@ We've created a Chrome browser extension that provides a web-based chat interfac
 2. Configure the server URL and select different models
 3. Save chat history
 4. Monitor connection status in real-time
+5. Summarize web pages with a single click
+6. Ask contextual questions about the current page
+7. Check grammar and improve text in any text field on a webpage
 
 ## Project Structure
 
@@ -22,7 +25,8 @@ aicompanion/
 │   │   └── icon128.png
 │   ├── js/
 │   │   ├── background.js      # Background script for the extension
-│   │   └── popup.js           # Main script for the popup interface
+│   │   ├── popup.js           # Main script for the popup interface
+│   │   └── content-script.js  # Content script for grammar checking
 │   ├── manifest.json          # Extension manifest file
 │   └── popup.html             # Main popup HTML
 ├── ai_companion_extension.zip  # Packaged extension
@@ -56,6 +60,9 @@ aicompanion/
 2. Click the settings icon (⚙️) in the top right corner to configure your Ollama server
 3. Enter your Ollama server URL and select a model
 4. Start chatting with your local AI models!
+5. Use the "Summarize Page" button to get a summary of the current webpage
+6. Use the "Ask about this page" button to ask questions about the current webpage
+7. Right-click in any text field on a webpage to access grammar checking and text improvement options
 
 ## Technical Details
 
@@ -71,3 +78,6 @@ aicompanion/
 - Add more customization options (themes, font sizes, etc.)
 - Support for system prompts and model parameters
 - Add support for multiple chat sessions
+- Enhance grammar checker with more options and language support
+- Add text translation capabilities
+- Implement automatic text summarization for long-form content

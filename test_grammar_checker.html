@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grammar Checker Test Page</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #4a6fa5;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .test-area {
+            margin: 30px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        .editable-div {
+            width: 100%;
+            min-height: 150px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: white;
+            margin-bottom: 15px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .instructions {
+            background-color: #f0f7ff;
+            border: 1px solid #c0d8f0;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .instructions h2 {
+            margin-top: 0;
+            color: #4a6fa5;
+        }
+        .instructions ol {
+            padding-left: 20px;
+        }
+        .sample-text {
+            background-color: #eee;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Grammar Checker Test Page</h1>
+    
+    <div class="instructions">
+        <h2>How to Use the Grammar Checker</h2>
+        <ol>
+            <li>Make sure the AI Companion extension is installed and active</li>
+            <li>Right-click in any of the text fields below</li>
+            <li>Select one of the grammar options from the context menu:
+                <ul>
+                    <li><strong>✓ Check Grammar</strong> - Checks for grammar, spelling, and punctuation errors</li>
+                    <li><strong>✨ Improve Writing</strong> - Makes your text clearer and more effective</li>
+                    <li><strong>👔 Make Formal</strong> - Rewrites your text in a more formal tone</li>
+                    <li><strong>👕 Make Casual</strong> - Rewrites your text in a more casual tone</li>
+                    <li><strong>📝 Shorten</strong> - Condenses your text while preserving key points</li>
+                </ul>
+            </li>
+            <li>Review the suggested changes in the popup</li>
+            <li>Click "Apply Changes" to update the text field with the improved version</li>
+        </ol>
+    </div>
+    
+    <div class="test-area">
+        <h2>Test Area 1: Textarea</h2>
+        <label for="test-textarea">Try the grammar checker on this textarea:</label>
+        <textarea id="test-textarea">I have went to the store yesterday and buyed some grocerys. The wheather was very bad so I didnt stayed for long. When I got home I realized I forgeted to buy milk.</textarea>
+    </div>
+    
+    <div class="test-area">
+        <h2>Test Area 2: Input Field</h2>
+        <label for="test-input">Try the grammar checker on this input field:</label>
+        <input type="text" id="test-input" value="Please reveiw this sentance for any mispelled words or gramatical errors.">
+    </div>
+    
+    <div class="test-area">
+        <h2>Test Area 3: Contenteditable Div</h2>
+        <label for="test-editable">Try the grammar checker on this editable div:</label>
+        <div id="test-editable" class="editable-div" contenteditable="true">
+            This email is to inform you about the meeting tommorrow. We will discuss the project status and next steps. Please bring you're laptop and any relevent documents. The meeting will start at 10am and should'nt last more then an hour.
+        </div>
+    </div>
+    
+    <div class="test-area">
+        <h2>Sample Text for Testing</h2>
+        <p>Here are some sample texts you can copy and paste into the fields above:</p>
+        
+        <h3>Text with Grammar Errors</h3>
+        <div class="sample-text">
+            Their are many ways to improve you're writing. First, you should always check you're grammar and spelling. Second, make sure your using the right words in you're sentences. Lastly, dont forget to use proper punctuation
+        </div>
+        
+        <h3>Text to Make More Formal</h3>
+        <div class="sample-text">
+            Hey there! Just wanted to let you know that we got your email and we're gonna look into it ASAP. We'll get back to you super quick, probably by tomorrow. Thanks for reaching out!
+        </div>
+        
+        <h3>Text to Make More Casual</h3>
+        <div class="sample-text">
+            I am writing to inform you that your application has been received and is currently under review by our admissions committee. We anticipate providing you with a decision regarding your application status within the next 10-15 business days.
+        </div>
+        
+        <h3>Text to Shorten</h3>
+        <div class="sample-text">
+            The quarterly financial report indicates that our company has experienced a significant increase in revenue during the third quarter of the fiscal year. This growth can be attributed to several factors, including the successful launch of our new product line, expanded market reach through our international partnerships, and the implementation of cost-cutting measures across all departments. Additionally, customer retention rates have improved by 15% compared to the previous quarter, which has contributed positively to our overall financial performance.
+        </div>
+    </div>
+</body>
+</html>
