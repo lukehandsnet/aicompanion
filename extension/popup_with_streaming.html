@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion</title>
+    <link rel="stylesheet" href="css/popup.css">
+    <style>
+        /* Additional styles for streaming toggle */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+            margin-right: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #4a6fa5;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .streaming-response {
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AI Companion</h1>
+            <div class="settings-icon" id="settingsButton">⚙️</div>
+        </div>
+        
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-content">
+                <h2>Settings</h2>
+                <div class="setting-item">
+                    <label for="serverUrl">Ollama Server URL:</label>
+                    <input type="text" id="serverUrl" placeholder="http://localhost:11434">
+                </div>
+                <div class="setting-item">
+                    <label for="modelSelect">Model:</label>
+                    <select id="modelSelect">
+                        <option value="llama2">Llama 2</option>
+                        <option value="mistral">Mistral</option>
+                        <option value="gemma">Gemma</option>
+                    </select>
+                </div>
+                <div class="setting-item toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="streamingToggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Enable Streaming Responses</span>
+                </div>
+                <div class="setting-item">
+                    <button id="saveSettings">Save Settings</button>
+                </div>
+                <div class="setting-item">
+                    <button id="refreshModels">Refresh Available Models</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <!-- Chat messages will be inserted here -->
+        </div>
+
+        <div class="action-buttons">
+            <button id="summarizeButton" class="action-button">📝 Summarize Page</button>
+            <button id="contextualQAButton" class="action-button">❓ Ask about this page</button>
+        </div>
+        
+        <div class="feature-info">
+            <h3>✨ New Feature: Streaming Responses</h3>
+            <p>Responses now stream in real-time for a more interactive experience. You can toggle this feature in settings.</p>
+        </div>
+
+        <div class="input-container">
+            <textarea id="userInput" placeholder="Type your message here..."></textarea>
+            <button id="sendButton">Send</button>
+        </div>
+
+        <div class="status-bar">
+            <span id="statusIndicator" class="status-indicator offline"></span>
+            <span id="statusText">Disconnected</span>
+        </div>
+    </div>
+
+    <script src="js/popup_with_streaming.js"></script>
+</body>
+</html>
