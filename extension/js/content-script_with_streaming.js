@@ -439,12 +439,13 @@ ${text}`;
     }
     
     // Send message to background script to process with AI
+    // Get the current tab ID
     chrome.runtime.sendMessage({
         action: 'grammarCheck',
         text: text,
         prompt: prompt,
         mode: mode,
-        tabId: chrome.runtime.id // Pass the tab ID for streaming updates
+        mode_original: mode // Keep the original mode for later reference
     }, function(response) {
         if (response && response.streaming) {
             // Initial streaming response - do nothing, updates will come via chrome.runtime.onMessage
@@ -464,7 +465,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
     if (message.action === 'streamUpdate') {
         if (message.success) {
             // Update the UI with the latest streaming content
-            updateResultUI(message.result, null, message.done);
+            updateResultUI(message.result, message.mode, message.done);
         } else {
             // Show error
             showErrorInPopup(message.error || 'Unknown error occurred');
@@ -514,6 +515,21 @@ function updateResultUI(result, mode, isDone = false) {
     // If it's done, show the action buttons
     if (isDone) {
         actionsElement.style.display = 'flex';
+        
+        // Find the Apply Changes button and update its click handler to handle the mode
+        const applyButton = actionsElement.querySelector('.ai-companion-result-button');
+        if (applyButton) {
+            applyButton.onclick = () => {
+                // Extract just the corrected text for grammar mode
+                let textToApply = contentElement.textContent;
+                if (mode === 'grammar' && textToApply.includes('Corrections:')) {
+                    textToApply = textToApply.split('Corrections:')[0].trim();
+                }
+                
+                setTextInField(currentTextField, textToApply);
+                document.body.removeChild(currentStreamingPopup);
+            };
+        }
     }
 }
 

@@ -17,6 +17,11 @@ chrome.runtime.onInstalled.addListener(function() {
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     console.log('Background script received message:', request);
     
+    // Add the sender tab ID to the request object for later use
+    if (sender && sender.tab && sender.tab.id) {
+        request.senderTabId = sender.tab.id;
+    }
+    
     if (request.action === 'checkServerStatus') {
         checkOllamaServer(request.serverUrl)
             .then(status => {
@@ -143,12 +148,17 @@ async function handleStreamingRequest(settings, request, sendResponse) {
             
             if (done) {
                 // Final response when stream is complete
-                chrome.tabs.sendMessage(request.tabId, {
-                    action: 'streamUpdate',
-                    success: true,
-                    result: fullText,
-                    done: true
-                });
+                if (request.senderTabId) {
+                    chrome.tabs.sendMessage(request.senderTabId, {
+                        action: 'streamUpdate',
+                        success: true,
+                        result: fullText,
+                        mode: request.mode_original,
+                        done: true
+                    });
+                } else {
+                    console.error('No valid tab ID to send message to');
+                }
                 break;
             }
             
@@ -165,12 +175,15 @@ async function handleStreamingRequest(settings, request, sendResponse) {
                         fullText += data.response;
                         
                         // Send incremental update
-                        chrome.tabs.sendMessage(request.tabId, {
-                            action: 'streamUpdate',
-                            success: true,
-                            result: fullText,
-                            done: false
-                        });
+                        if (request.senderTabId) {
+                            chrome.tabs.sendMessage(request.senderTabId, {
+                                action: 'streamUpdate',
+                                success: true,
+                                result: fullText,
+                                mode: request.mode_original,
+                                done: false
+                            });
+                        }
                     }
                 } catch (e) {
                     console.error('Error parsing JSON:', e, line);
@@ -179,12 +192,14 @@ async function handleStreamingRequest(settings, request, sendResponse) {
         }
     } catch (error) {
         console.error('Streaming error:', error);
-        chrome.tabs.sendMessage(request.tabId, {
-            action: 'streamUpdate',
-            success: false,
-            error: error.message || 'Unknown error occurred',
-            done: true
-        });
+        if (request.senderTabId) {
+            chrome.tabs.sendMessage(request.senderTabId, {
+                action: 'streamUpdate',
+                success: false,
+                error: error.message || 'Unknown error occurred',
+                done: true
+            });
+        }
     }
 }
 
