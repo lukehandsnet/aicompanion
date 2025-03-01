@@ -112,6 +112,14 @@ body {
     word-wrap: break-word;
 }
 
+.message-text p {
+    margin: 0 0 8px 0;
+}
+
+.message-text p:last-child {
+    margin-bottom: 0;
+}
+
 .user-message {
     align-self: flex-end;
     background-color: #dcf8c6;
@@ -122,6 +130,16 @@ body {
     align-self: flex-start;
     background-color: white;
     border-bottom-left-radius: 5px;
+}
+
+.system-message {
+    align-self: center;
+    background-color: #f0f0f0;
+    border-radius: 10px;
+    font-family: monospace;
+    max-width: 90%;
+    color: #333;
+    border: 1px solid #ddd;
 }
 
 .message-time {

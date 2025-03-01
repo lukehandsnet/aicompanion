@@ -11,7 +11,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const refreshModelsButton = document.getElementById('refreshModels');
     const statusIndicator = document.getElementById('statusIndicator');
     const statusText = document.getElementById('statusText');
-
+    
+    // Debug mode - can be enabled by typing "debug:on" in the chat
+    let debugMode = false;
+    
     // Default settings
     let settings = {
         serverUrl: 'http://localhost:11434',
@@ -83,22 +86,50 @@ document.addEventListener('DOMContentLoaded', function() {
     function checkServerConnection() {
         updateStatus('connecting', 'Connecting...');
         
-        fetch(`${settings.serverUrl}/api/tags`)
-            .then(response => {
-                if (response.ok) {
+        // Use the background script to proxy the request to avoid CORS issues
+        chrome.runtime.sendMessage({
+            action: 'proxyOllamaRequest',
+            url: `${settings.serverUrl}/api/tags`,
+            method: 'GET'
+        }, function(response) {
+            if (response.success) {
+                // Check if the response was successful
+                if (response.data.status === 200) {
                     updateStatus('online', 'Connected');
-                    return response.json();
+                    
+                    // Parse the response data
+                    let data;
+                    try {
+                        data = typeof response.data.data === 'string' 
+                            ? JSON.parse(response.data.data) 
+                            : response.data.data;
+                        
+                        populateModelSelect(data.models);
+                    } catch (e) {
+                        console.error('Error parsing model data:', e);
+                        updateStatus('online', 'Connected (Error parsing models)');
+                    }
                 } else {
-                    throw new Error('Server connection failed');
+                    // Handle error response from the server
+                    console.error('Error connecting to Ollama server:', response.data);
+                    
+                    let statusMessage = `Error: ${response.data.status}`;
+                    if (response.data.status === 403) {
+                        statusMessage = 'Access forbidden';
+                    } else if (response.data.status === 404) {
+                        statusMessage = 'API not found';
+                    } else if (response.data.status >= 500) {
+                        statusMessage = 'Server error';
+                    }
+                    
+                    updateStatus('offline', statusMessage);
                 }
-            })
-            .then(data => {
-                populateModelSelect(data.models);
-            })
-            .catch(error => {
-                console.error('Error connecting to Ollama server:', error);
-                updateStatus('offline', 'Disconnected');
-            });
+            } else {
+                // Handle error in the proxy request
+                console.error('Error connecting to Ollama server:', response.error);
+                updateStatus('offline', 'Cannot reach server');
+            }
+        });
     }
 
     function updateStatus(status, message) {
@@ -109,22 +140,54 @@ document.addEventListener('DOMContentLoaded', function() {
     function fetchAvailableModels() {
         updateStatus('connecting', 'Fetching models...');
         
-        fetch(`${settings.serverUrl}/api/tags`)
-            .then(response => {
-                if (response.ok) {
-                    updateStatus('online', 'Connected');
-                    return response.json();
+        // Use the background script to proxy the request to avoid CORS issues
+        chrome.runtime.sendMessage({
+            action: 'proxyOllamaRequest',
+            url: `${settings.serverUrl}/api/tags`,
+            method: 'GET'
+        }, function(response) {
+            if (response.success) {
+                // Check if the response was successful
+                if (response.data.status === 200) {
+                    // Parse the response data
+                    let data;
+                    try {
+                        data = typeof response.data.data === 'string' 
+                            ? JSON.parse(response.data.data) 
+                            : response.data.data;
+                        
+                        if (data.models && data.models.length > 0) {
+                            populateModelSelect(data.models);
+                            updateStatus('online', `Found ${data.models.length} models`);
+                        } else {
+                            populateModelSelect([]);
+                            updateStatus('online', 'No models found. Pull models using Ollama CLI');
+                        }
+                    } catch (e) {
+                        console.error('Error parsing model data:', e);
+                        updateStatus('online', 'Error parsing models');
+                    }
                 } else {
-                    throw new Error('Failed to fetch models');
+                    // Handle error response from the server
+                    console.error('Error fetching models:', response.data);
+                    
+                    let statusMessage = `Error: ${response.data.status}`;
+                    if (response.data.status === 403) {
+                        statusMessage = 'Access forbidden';
+                    } else if (response.data.status === 404) {
+                        statusMessage = 'API not found';
+                    } else if (response.data.status >= 500) {
+                        statusMessage = 'Server error';
+                    }
+                    
+                    updateStatus('offline', statusMessage);
                 }
-            })
-            .then(data => {
-                populateModelSelect(data.models);
-            })
-            .catch(error => {
-                console.error('Error fetching models:', error);
-                updateStatus('offline', 'Failed to fetch models');
-            });
+            } else {
+                // Handle error in the proxy request
+                console.error('Error fetching models:', response.error);
+                updateStatus('offline', 'Cannot reach server');
+            }
+        });
     }
 
     function populateModelSelect(models) {
@@ -160,6 +223,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const message = userInput.value.trim();
         if (!message) return;
         
+        // Check for debug commands
+        if (message.startsWith('debug:')) {
+            handleDebugCommand(message);
+            return;
+        }
+        
         // Add user message to chat
         const timestamp = new Date().toLocaleTimeString();
         appendMessage('user', message, timestamp);
@@ -174,43 +243,103 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show typing indicator
         showTypingIndicator();
         
-        // Send to Ollama API
-        fetch(`${settings.serverUrl}/api/generate`, {
+        // Use the background script to proxy the request to avoid CORS issues
+        chrome.runtime.sendMessage({
+            action: 'proxyOllamaRequest',
+            url: `${settings.serverUrl}/api/generate`,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
+            body: {
                 model: settings.model,
                 prompt: message,
                 stream: false
-            })
-        })
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('Failed to get response from Ollama');
             }
-            return response.json();
-        })
-        .then(data => {
+        }, function(response) {
             // Remove typing indicator
             removeTypingIndicator();
             
-            // Add AI response to chat
-            const aiTimestamp = new Date().toLocaleTimeString();
-            appendMessage('ai', data.response, aiTimestamp);
-            
-            // Save to chat history
-            saveChatMessage('ai', data.response, aiTimestamp);
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            removeTypingIndicator();
-            
-            const errorTimestamp = new Date().toLocaleTimeString();
-            appendMessage('ai', 'Sorry, I encountered an error. Please check your connection to the Ollama server.', errorTimestamp);
-            updateStatus('offline', 'Error: ' + error.message);
+            if (response.success) {
+                // Check if the response was successful
+                if (response.data.status === 200) {
+                    // Add AI response to chat
+                    const aiTimestamp = new Date().toLocaleTimeString();
+                    const aiResponse = response.data.data.response;
+                    appendMessage('ai', aiResponse, aiTimestamp);
+                    
+                    // Save to chat history
+                    saveChatMessage('ai', aiResponse, aiTimestamp);
+                    
+                    // Update status
+                    updateStatus('online', 'Connected');
+                } else {
+                    // Handle error response from the server
+                    handleOllamaError({
+                        message: `Server returned ${response.data.status}: ${response.data.statusText}`,
+                        status: response.data.status,
+                        data: response.data.data
+                    });
+                }
+            } else {
+                // Handle error in the proxy request
+                handleOllamaError({
+                    message: response.error || 'Unknown error occurred',
+                    isConnectionError: true
+                });
+            }
         });
+    }
+    
+    function handleOllamaError(error) {
+        console.error('Error:', error);
+        
+        const errorTimestamp = new Date().toLocaleTimeString();
+        
+        // Create a more detailed error message
+        let errorMessage = 'Sorry, I encountered an error while communicating with the Ollama server.';
+        
+        // Add specific error details
+        if (error.isConnectionError || error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+            errorMessage += '\n\nConnection Error: Unable to reach the Ollama server. Please check that:' +
+                '\n1. Ollama is running on your machine' +
+                '\n2. The server URL is correct (' + settings.serverUrl + ')' +
+                '\n3. The model "' + settings.model + '" is available on your Ollama server';
+        } else if (error.message.includes('Server returned')) {
+            errorMessage += '\n\nServer Error: ' + error.message;
+            
+            // Add specific advice for common error codes
+            if (error.status === 404 || error.message.includes('404')) {
+                errorMessage += '\n\nThe model "' + settings.model + '" may not be installed. Try running:' +
+                    '\n"ollama pull ' + settings.model + '" in your terminal.';
+            } else if (error.status === 500 || error.message.includes('500')) {
+                errorMessage += '\n\nThe server encountered an internal error. This might be due to:' +
+                    '\n1. Insufficient resources to run the model' +
+                    '\n2. A problem with the model itself' +
+                    '\n3. An issue with your Ollama installation';
+            } else if (error.status === 403 || error.message.includes('403')) {
+                errorMessage += '\n\nAccess Forbidden: The server refused to authorize the request. This might be due to:' +
+                    '\n1. CORS restrictions on the Ollama server' +
+                    '\n2. A firewall blocking the connection' +
+                    '\n3. Ollama server configuration issues';
+                
+                // Add advice for CORS issues
+                errorMessage += '\n\nTry running Ollama with CORS headers enabled:' +
+                    '\n- On Linux/Mac: `OLLAMA_ORIGINS=* ollama serve`' +
+                    '\n- On Windows: Set environment variable OLLAMA_ORIGINS=* before starting Ollama';
+            }
+        } else {
+            errorMessage += '\n\nError details: ' + error.message;
+        }
+        
+        // If we have error data, include it
+        if (error.data && typeof error.data === 'object') {
+            try {
+                errorMessage += '\n\nServer response: ' + JSON.stringify(error.data);
+            } catch (e) {
+                // Ignore stringify errors
+            }
+        }
+        
+        appendMessage('ai', errorMessage, errorTimestamp);
+        updateStatus('offline', 'Error: ' + error.message);
     }
 
     function appendMessage(sender, text, timestamp) {
@@ -219,7 +348,24 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const messageText = document.createElement('div');
         messageText.className = 'message-text';
-        messageText.textContent = text;
+        
+        // Handle multi-line text (especially for error messages)
+        if (text.includes('\n')) {
+            // Split by newline and create paragraph elements
+            const paragraphs = text.split('\n');
+            paragraphs.forEach((paragraph, index) => {
+                if (paragraph.trim() !== '') {
+                    const p = document.createElement('p');
+                    p.textContent = paragraph;
+                    messageText.appendChild(p);
+                } else if (index < paragraphs.length - 1) {
+                    // Add empty line for readability, but not at the end
+                    messageText.appendChild(document.createElement('br'));
+                }
+            });
+        } else {
+            messageText.textContent = text;
+        }
         
         const messageTime = document.createElement('div');
         messageTime.className = 'message-time';
@@ -273,5 +419,272 @@ document.addEventListener('DOMContentLoaded', function() {
             
             chrome.storage.local.set({ chatHistory: chatHistory });
         });
+    }
+    
+    function handleDebugCommand(command) {
+        const timestamp = new Date().toLocaleTimeString();
+        let responseMessage = '';
+        
+        // Clear input
+        userInput.value = '';
+        userInput.style.height = 'auto';
+        
+        // Process command
+        if (command === 'debug:on') {
+            debugMode = true;
+            responseMessage = 'Debug mode enabled. Available commands:\n' +
+                'debug:off - Turn off debug mode\n' +
+                'debug:status - Show current status and settings\n' +
+                'debug:clear - Clear chat history\n' +
+                'debug:test - Test connection to Ollama server\n' +
+                'debug:models - Show available models\n' +
+                'debug:chat [message] - Test chat with detailed logging\n' +
+                'debug:ping - Simple ping test to Ollama server';
+        } else if (command === 'debug:off') {
+            debugMode = false;
+            responseMessage = 'Debug mode disabled.';
+        } else if (command === 'debug:status') {
+            responseMessage = 'Current Status:\n' +
+                `Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}\n` +
+                `Server URL: ${settings.serverUrl}\n` +
+                `Current Model: ${settings.model}\n` +
+                `Connection Status: ${statusText.textContent}`;
+        } else if (command === 'debug:clear') {
+            // Clear chat container
+            chatContainer.innerHTML = '';
+            // Clear chat history
+            chrome.storage.local.set({ chatHistory: [] });
+            responseMessage = 'Chat history cleared.';
+        } else if (command === 'debug:test') {
+            // Test connection to Ollama server
+            responseMessage = 'Testing connection to Ollama server...';
+            appendMessage('system', responseMessage, timestamp);
+            
+            // Use the background script to proxy the request to avoid CORS issues
+            chrome.runtime.sendMessage({
+                action: 'proxyOllamaRequest',
+                url: `${settings.serverUrl}/api/tags`,
+                method: 'GET'
+            }, function(response) {
+                let testResult = '';
+                
+                if (response.success) {
+                    // Check if the response was successful
+                    if (response.data.status === 200) {
+                        // Parse the response data
+                        let data;
+                        try {
+                            data = typeof response.data.data === 'string' 
+                                ? JSON.parse(response.data.data) 
+                                : response.data.data;
+                            
+                            testResult = 'Connection successful!\n\n' +
+                                `Server URL: ${settings.serverUrl}\n` +
+                                `API Version: ${data.ollama?.version || 'Unknown'}\n` +
+                                `Available Models: ${data.models?.length || 0}\n\n` +
+                                'Raw Response:\n' + JSON.stringify(data, null, 2);
+                        } catch (e) {
+                            testResult = `Connection successful but error parsing response: ${e.message}\n\n` +
+                                `Raw Response: ${JSON.stringify(response.data.data)}`;
+                        }
+                    } else {
+                        // Handle error response from the server
+                        testResult = `Connection failed: Server returned ${response.data.status}: ${response.data.statusText}\n\n`;
+                        
+                        // Add response data if available
+                        if (response.data.data) {
+                            testResult += `Response data: ${typeof response.data.data === 'string' ? response.data.data : JSON.stringify(response.data.data)}`;
+                        }
+                    }
+                } else {
+                    // Handle error in the proxy request
+                    testResult = `Connection error: ${response.error || 'Unknown error'}\n\n` +
+                        'This could be due to:\n' +
+                        '1. Ollama not running\n' +
+                        '2. Incorrect server URL\n' +
+                        '3. Network issues\n' +
+                        '4. CORS restrictions';
+                }
+                
+                appendMessage('system', testResult, new Date().toLocaleTimeString());
+            });
+            
+            return; // Don't append another message
+        } else if (command === 'debug:models') {
+            // Show available models
+            responseMessage = 'Fetching available models...';
+            appendMessage('system', responseMessage, timestamp);
+            
+            // Use the background script to proxy the request to avoid CORS issues
+            chrome.runtime.sendMessage({
+                action: 'proxyOllamaRequest',
+                url: `${settings.serverUrl}/api/tags`,
+                method: 'GET'
+            }, function(response) {
+                if (response.success) {
+                    // Check if the response was successful
+                    if (response.data.status === 200) {
+                        // Parse the response data
+                        let data;
+                        try {
+                            data = typeof response.data.data === 'string' 
+                                ? JSON.parse(response.data.data) 
+                                : response.data.data;
+                            
+                            if (data.models && data.models.length > 0) {
+                                const modelList = data.models.map(model => 
+                                    `${model.name} (${(model.size / (1024*1024*1024)).toFixed(2)} GB)`
+                                ).join('\n');
+                                const modelMessage = `Available Models:\n${modelList}`;
+                                appendMessage('system', modelMessage, new Date().toLocaleTimeString());
+                            } else {
+                                appendMessage('system', 'No models found on the Ollama server.', new Date().toLocaleTimeString());
+                            }
+                        } catch (e) {
+                            const errorMessage = `Error parsing model data: ${e.message}`;
+                            appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                        }
+                    } else {
+                        // Handle error response from the server
+                        const errorMessage = `Failed to fetch models: Server returned ${response.data.status}: ${response.data.statusText}`;
+                        appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                        
+                        // Add response data if available
+                        if (response.data.data) {
+                            const dataMessage = `Response data: ${typeof response.data.data === 'string' ? response.data.data : JSON.stringify(response.data.data)}`;
+                            appendMessage('system', dataMessage, new Date().toLocaleTimeString());
+                        }
+                    }
+                } else {
+                    // Handle error in the proxy request
+                    const errorMessage = `Error fetching models: ${response.error || 'Unknown error'}`;
+                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                }
+            });
+            
+            return; // Don't append another message
+        } else if (command === 'debug:ping') {
+            // Simple ping test to Ollama server
+            responseMessage = 'Pinging Ollama server...';
+            appendMessage('system', responseMessage, timestamp);
+            
+            // Use a simple fetch directly (not through the proxy) to test basic connectivity
+            fetch(`${settings.serverUrl}/api/tags`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                const pingResult = `Direct ping result: ${response.status} ${response.statusText}`;
+                appendMessage('system', pingResult, new Date().toLocaleTimeString());
+                
+                // Now try with the proxy
+                appendMessage('system', 'Pinging through proxy...', new Date().toLocaleTimeString());
+                
+                chrome.runtime.sendMessage({
+                    action: 'proxyOllamaRequest',
+                    url: `${settings.serverUrl}/api/tags`,
+                    method: 'GET'
+                }, function(proxyResponse) {
+                    const proxyResult = `Proxy ping result: ${proxyResponse.success ? 'Success' : 'Failed'}`;
+                    appendMessage('system', proxyResult, new Date().toLocaleTimeString());
+                    
+                    if (proxyResponse.success) {
+                        appendMessage('system', `Status: ${proxyResponse.data.status} ${proxyResponse.data.statusText}`, new Date().toLocaleTimeString());
+                    } else {
+                        appendMessage('system', `Error: ${proxyResponse.error}`, new Date().toLocaleTimeString());
+                    }
+                });
+            })
+            .catch(error => {
+                const errorMessage = `Direct ping error: ${error.message}`;
+                appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+            });
+            
+            return; // Don't append another message
+        } else if (command.startsWith('debug:chat ')) {
+            // Test chat with a simple message
+            const testMessage = command.substring('debug:chat '.length);
+            if (!testMessage) {
+                responseMessage = 'Please provide a test message. Example: debug:chat Hello, how are you?';
+            } else {
+                responseMessage = `Sending test message: "${testMessage}"`;
+                appendMessage('system', responseMessage, timestamp);
+                
+                // Show request details
+                const requestDetails = `Request Details:\nURL: ${settings.serverUrl}/api/generate\nModel: ${settings.model}\nPrompt: ${testMessage}`;
+                appendMessage('system', requestDetails, new Date().toLocaleTimeString());
+                
+                // Show typing indicator
+                showTypingIndicator();
+                
+                // Use the background script to proxy the request to avoid CORS issues
+                chrome.runtime.sendMessage({
+                    action: 'proxyOllamaRequest',
+                    url: `${settings.serverUrl}/api/generate`,
+                    method: 'POST',
+                    body: {
+                        model: settings.model,
+                        prompt: testMessage,
+                        stream: false
+                    }
+                }, function(response) {
+                    // Remove typing indicator
+                    removeTypingIndicator();
+                    
+                    // Log raw response
+                    appendMessage('system', `Raw Response:\n${JSON.stringify(response, null, 2).substring(0, 500)}${JSON.stringify(response, null, 2).length > 500 ? '...(truncated)' : ''}`, new Date().toLocaleTimeString());
+                    
+                    if (response.success) {
+                        // Check if the response was successful
+                        if (response.data.status === 200) {
+                            // Log parsed response
+                            appendMessage('system', `Parsed Response:\n${JSON.stringify(response.data.data, null, 2)}`, new Date().toLocaleTimeString());
+                            
+                            // Add AI response to chat
+                            const aiTimestamp = new Date().toLocaleTimeString();
+                            appendMessage('ai', response.data.data.response, aiTimestamp);
+                        } else {
+                            // Handle error response from the server
+                            const errorTimestamp = new Date().toLocaleTimeString();
+                            appendMessage('system', `Error: Server returned ${response.data.status}: ${response.data.statusText}`, errorTimestamp);
+                            
+                            // Show error details if available
+                            if (response.data.data) {
+                                try {
+                                    const errorDetails = typeof response.data.data === 'string' 
+                                        ? response.data.data 
+                                        : JSON.stringify(response.data.data, null, 2);
+                                    appendMessage('system', `Error Details:\n${errorDetails}`, errorTimestamp);
+                                } catch (e) {
+                                    appendMessage('system', `Error parsing error details: ${e.message}`, errorTimestamp);
+                                }
+                            }
+                        }
+                    } else {
+                        // Handle error in the proxy request
+                        const errorTimestamp = new Date().toLocaleTimeString();
+                        appendMessage('system', `Proxy Error: ${response.error || 'Unknown error occurred'}`, errorTimestamp);
+                    }
+                });
+                
+                return; // Don't append another message
+            }
+        
+        } else {
+            responseMessage = `Unknown debug command: ${command}\n` +
+                'Available commands:\n' +
+                'debug:on - Turn on debug mode\n' +
+                'debug:off - Turn off debug mode\n' +
+                'debug:status - Show current status and settings\n' +
+                'debug:clear - Clear chat history\n' +
+                'debug:test - Test connection to Ollama server\n' +
+                'debug:models - Show available models\n' +
+                'debug:chat [message] - Test chat with detailed logging\n' +
+                'debug:ping - Simple ping test to Ollama server';
+        }
+        
+        appendMessage('system', responseMessage, timestamp);
     }
 });
