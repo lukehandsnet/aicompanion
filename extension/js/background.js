@@ -213,6 +213,11 @@ async function proxyOllamaRequest(url, method, body) {
     try {
         console.log('Starting proxy request to:', url);
         
+        // Check if URL is valid
+        if (!url || !url.startsWith('http')) {
+            throw new Error(`Invalid URL: ${url}`);
+        }
+        
         const options = {
             method: method || 'GET',
             headers: {
@@ -222,36 +227,67 @@ async function proxyOllamaRequest(url, method, body) {
         
         if (body && (method === 'POST' || method === 'PUT')) {
             options.body = JSON.stringify(body);
+            console.log('Request body type:', typeof body);
             console.log('Request body:', options.body);
+            
+            // Validate model parameter for generate requests
+            if (url.includes('/api/generate') && (!body.model || typeof body.model !== 'string')) {
+                console.error('Invalid or missing model parameter:', body.model);
+            }
         }
         
         console.log('Fetch options:', options);
         
-        const response = await fetch(url, options);
-        console.log('Response received:', response.status, response.statusText);
-        
-        // Handle different response types
-        const contentType = response.headers.get('content-type');
-        console.log('Response content type:', contentType);
-        
-        if (contentType && contentType.includes('application/json')) {
-            console.log('Processing as JSON response');
-            const jsonResponse = await response.json();
-            console.log('JSON response data:', jsonResponse);
-            return {
-                status: response.status,
-                statusText: response.statusText,
-                data: jsonResponse
-            };
-        } else {
-            console.log('Processing as text response');
-            const textResponse = await response.text();
-            console.log('Text response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
-            return {
-                status: response.status,
-                statusText: response.statusText,
-                data: textResponse
-            };
+        try {
+            const response = await fetch(url, options);
+            console.log('Response received:', response.status, response.statusText);
+            
+            // Handle different response types
+            const contentType = response.headers.get('content-type');
+            console.log('Response content type:', contentType);
+            
+            if (contentType && contentType.includes('application/json')) {
+                console.log('Processing as JSON response');
+                try {
+                    const jsonResponse = await response.json();
+                    console.log('JSON response data:', jsonResponse);
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: jsonResponse
+                    };
+                } catch (jsonError) {
+                    console.error('Error parsing JSON response:', jsonError);
+                    const textFallback = await response.text();
+                    console.log('Response as text (fallback):', textFallback.substring(0, 100) + (textFallback.length > 100 ? '...' : ''));
+                    throw new Error(`Failed to parse JSON response: ${jsonError.message}`);
+                }
+            } else {
+                console.log('Processing as text response');
+                const textResponse = await response.text();
+                console.log('Text response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
+                
+                // Try to parse as JSON anyway in case content-type is wrong
+                try {
+                    const jsonData = JSON.parse(textResponse);
+                    console.log('Successfully parsed text as JSON:', jsonData);
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: jsonData
+                    };
+                } catch (e) {
+                    // Not JSON, return as text
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: textResponse
+                    };
+                }
+            }
+        } catch (fetchError) {
+            console.error('Fetch error:', fetchError);
+            throw new Error(`Network error: ${fetchError.message}`);
         }
     } catch (error) {
         console.error('Error proxying request to Ollama server:', error);

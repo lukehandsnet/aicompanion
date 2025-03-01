@@ -470,9 +470,24 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
             showErrorInPopup(message.error || 'Unknown error occurred');
         }
     } else if (message.action === 'getPageContent') {
-        // Extract the page content
-        const pageContent = document.body.innerText || document.body.textContent || '';
-        sendResponse({ content: pageContent });
+        try {
+            // Extract the page content
+            console.log('Extracting page content...');
+            const pageContent = document.body.innerText || document.body.textContent || '';
+            console.log('Page content length:', pageContent.length);
+            
+            // Send a success response with the content
+            sendResponse({ 
+                content: pageContent,
+                success: true
+            });
+        } catch (error) {
+            console.error('Error extracting page content:', error);
+            sendResponse({ 
+                error: error.message,
+                success: false
+            });
+        }
     }
     return true;
 });
