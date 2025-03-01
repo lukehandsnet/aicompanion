@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const chatContainer = document.getElementById('chatContainer');
     const userInput = document.getElementById('userInput');
     const sendButton = document.getElementById('sendButton');
+    const summarizeButton = document.getElementById('summarizeButton');
     const settingsButton = document.getElementById('settingsButton');
     const settingsPanel = document.getElementById('settingsPanel');
     const saveSettingsButton = document.getElementById('saveSettings');
@@ -49,6 +50,7 @@ document.addEventListener('DOMContentLoaded', function() {
     settingsButton.addEventListener('click', toggleSettings);
     saveSettingsButton.addEventListener('click', saveSettings);
     sendButton.addEventListener('click', sendMessage);
+    summarizeButton.addEventListener('click', summarizeCurrentPage);
     refreshModelsButton.addEventListener('click', fetchAvailableModels);
     
     userInput.addEventListener('keydown', function(e) {
@@ -703,5 +705,149 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         appendMessage('system', responseMessage, timestamp);
+    }
+
+    // Function to summarize the current page
+    function summarizeCurrentPage() {
+        // Update status
+        updateStatus('connecting', 'Getting page content...');
+        
+        // Get the active tab
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            const activeTab = tabs[0];
+            const timestamp = new Date().toLocaleTimeString();
+            
+            // Check if the URL is a restricted URL (chrome://, edge://, about:, etc.)
+            if (activeTab.url.startsWith('chrome://') || 
+                activeTab.url.startsWith('edge://') || 
+                activeTab.url.startsWith('about:') ||
+                activeTab.url.startsWith('chrome-extension://') ||
+                activeTab.url.startsWith('devtools://')) {
+                
+                // Show error message for restricted URLs
+                appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
+                appendMessage('system', 'Error: Cannot access content from ' + activeTab.url.split('/')[0] + '// URLs due to browser security restrictions.', timestamp);
+                appendMessage('system', 'Please navigate to a regular webpage to use the summarize feature.', timestamp);
+                updateStatus('offline', 'Cannot access this page type');
+                return;
+            }
+            
+            // Show a message that we're getting the page content
+            appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
+            
+            // Execute script to get page content
+            chrome.scripting.executeScript({
+                target: {tabId: activeTab.id},
+                function: getPageContent
+            }, function(results) {
+                if (chrome.runtime.lastError) {
+                    // Handle error
+                    const errorMessage = 'Error: ' + chrome.runtime.lastError.message;
+                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                    updateStatus('offline', 'Error getting page content');
+                    return;
+                }
+                
+                if (!results || !results[0] || !results[0].result) {
+                    appendMessage('system', 'Error: Could not extract page content', new Date().toLocaleTimeString());
+                    updateStatus('offline', 'Error getting page content');
+                    return;
+                }
+                
+                const pageContent = results[0].result;
+                
+                // Show a message that we're summarizing
+                const userTimestamp = new Date().toLocaleTimeString();
+                const userMessage = 'Please summarize this page for me.';
+                appendMessage('user', userMessage, userTimestamp);
+                
+                // Save to chat history
+                saveChatMessage('user', userMessage, userTimestamp);
+                
+                // Show typing indicator
+                showTypingIndicator();
+                
+                // Create a prompt for summarization
+                const summarizePrompt = `Please provide a concise summary of the following webpage content. Focus on the main points and key information:
+
+${pageContent.substring(0, 15000)}${pageContent.length > 15000 ? '... (content truncated due to length)' : ''}`;
+                
+                // Send to Ollama for summarization
+                chrome.runtime.sendMessage({
+                    action: 'proxyOllamaRequest',
+                    url: `${settings.serverUrl}/api/generate`,
+                    method: 'POST',
+                    body: {
+                        model: settings.model,
+                        prompt: summarizePrompt,
+                        stream: false
+                    }
+                }, function(response) {
+                    // Remove typing indicator
+                    removeTypingIndicator();
+                    
+                    if (response.success) {
+                        // Check if the response was successful
+                        if (response.data.status === 200) {
+                            // Add AI response to chat
+                            const aiTimestamp = new Date().toLocaleTimeString();
+                            const aiResponse = response.data.data.response;
+                            appendMessage('ai', aiResponse, aiTimestamp);
+                            
+                            // Save to chat history
+                            saveChatMessage('ai', aiResponse, aiTimestamp);
+                            
+                            // Update status
+                            updateStatus('online', 'Connected');
+                        } else {
+                            // Handle error response from the server
+                            handleOllamaError({
+                                message: `Server returned ${response.data.status}: ${response.data.statusText}`,
+                                status: response.data.status,
+                                data: response.data.data
+                            });
+                        }
+                    } else {
+                        // Handle error in the proxy request
+                        handleOllamaError({
+                            message: response.error || 'Unknown error occurred',
+                            isConnectionError: true
+                        });
+                    }
+                });
+            });
+        });
+    }
+    
+    // Function to get page content (executed in the context of the page)
+    function getPageContent() {
+        // Get the main content of the page
+        // This is a simple implementation that gets text from the body
+        // You might want to improve this to focus on the main content area
+        
+        // Get the page title
+        const title = document.title;
+        
+        // Get the page URL
+        const url = window.location.href;
+        
+        // Get the page content
+        // First try to get the main content if it exists
+        let content = '';
+        
+        // Try to get content from article or main elements first
+        const mainContent = document.querySelector('article, main, #content, .content, [role="main"]');
+        if (mainContent) {
+            content = mainContent.innerText;
+        } else {
+            // Fallback to body content
+            content = document.body.innerText;
+        }
+        
+        // Clean up the content (remove extra whitespace)
+        content = content.replace(/\s+/g, ' ').trim();
+        
+        // Return a structured object with the page information
+        return `Title: ${title}\nURL: ${url}\n\nContent:\n${content}`;
     }
 });
