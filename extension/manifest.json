@@ -4,7 +4,7 @@
   "version": "1.0",
   "description": "Chat with your local Ollama server directly from your browser",
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup_with_streaming.html",
     "default_icon": {
       "16": "images/icon16.png",
       "48": "images/icon48.png",
@@ -22,12 +22,12 @@
     "http://127.0.0.1:*/*"
   ],
   "background": {
-    "service_worker": "js/background.js"
+    "service_worker": "js/background_with_streaming.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["js/content-script.js"],
+      "js": ["js/content-script_with_streaming.js"],
       "run_at": "document_end"
     }
   ],
