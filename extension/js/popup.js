@@ -715,9 +715,24 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get the active tab
         chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
             const activeTab = tabs[0];
+            const timestamp = new Date().toLocaleTimeString();
+            
+            // Check if the URL is a restricted URL (chrome://, edge://, about:, etc.)
+            if (activeTab.url.startsWith('chrome://') || 
+                activeTab.url.startsWith('edge://') || 
+                activeTab.url.startsWith('about:') ||
+                activeTab.url.startsWith('chrome-extension://') ||
+                activeTab.url.startsWith('devtools://')) {
+                
+                // Show error message for restricted URLs
+                appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
+                appendMessage('system', 'Error: Cannot access content from ' + activeTab.url.split('/')[0] + '// URLs due to browser security restrictions.', timestamp);
+                appendMessage('system', 'Please navigate to a regular webpage to use the summarize feature.', timestamp);
+                updateStatus('offline', 'Cannot access this page type');
+                return;
+            }
             
             // Show a message that we're getting the page content
-            const timestamp = new Date().toLocaleTimeString();
             appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
             
             // Execute script to get page content
