@@ -686,13 +686,46 @@ ${response.content.substring(0, 15000)}`;  // Limit content to avoid token limit
                             const aiTimestamp = new Date().toLocaleTimeString();
                             
                             // Check if response data is properly formatted
-                            if (!response.data.data || !response.data.data.response) {
+                            let aiResponse = '';
+                            
+                            // Handle different response formats
+                            if (response.data.data && response.data.data.response) {
+                                // Standard JSON response format
+                                aiResponse = response.data.data.response;
+                                console.log('Using standard JSON response format');
+                            } else if (response.data.response) {
+                                // Direct response format (from our NDJSON handler)
+                                aiResponse = response.data.response;
+                                console.log('Using direct response format');
+                            } else if (typeof response.data === 'string') {
+                                // Raw string response
+                                try {
+                                    // Try to parse as JSON
+                                    const jsonData = JSON.parse(response.data);
+                                    if (jsonData.response) {
+                                        aiResponse = jsonData.response;
+                                        console.log('Parsed string response as JSON');
+                                    } else {
+                                        // Use the string as is
+                                        aiResponse = response.data;
+                                        console.log('Using raw string response');
+                                    }
+                                } catch (e) {
+                                    // Use the string as is
+                                    aiResponse = response.data;
+                                    console.log('Using raw string response (JSON parse failed)');
+                                }
+                            } else {
                                 console.error('Response data is missing expected format:', response.data);
                                 appendMessage('system', 'Error: Received malformed response from the server.', timestamp);
                                 return;
                             }
                             
-                            const aiResponse = response.data.data.response;
+                            if (!aiResponse) {
+                                console.error('Empty AI response after processing');
+                                appendMessage('system', 'Error: Received empty response from the server.', timestamp);
+                                return;
+                            }
                             console.log('AI response received, length:', aiResponse.length);
                             
                             appendMessage('ai', aiResponse, aiTimestamp);
