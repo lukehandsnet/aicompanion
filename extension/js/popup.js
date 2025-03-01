@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const userInput = document.getElementById('userInput');
     const sendButton = document.getElementById('sendButton');
     const summarizeButton = document.getElementById('summarizeButton');
+    const contextualQAButton = document.getElementById('contextualQAButton');
     const settingsButton = document.getElementById('settingsButton');
     const settingsPanel = document.getElementById('settingsPanel');
     const saveSettingsButton = document.getElementById('saveSettings');
@@ -51,6 +52,7 @@ document.addEventListener('DOMContentLoaded', function() {
     saveSettingsButton.addEventListener('click', saveSettings);
     sendButton.addEventListener('click', sendMessage);
     summarizeButton.addEventListener('click', summarizeCurrentPage);
+    contextualQAButton.addEventListener('click', startContextualQA);
     refreshModelsButton.addEventListener('click', fetchAvailableModels);
     
     userInput.addEventListener('keydown', function(e) {
@@ -241,6 +243,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clear input
         userInput.value = '';
         userInput.style.height = 'auto';
+        
+        // Check if we're in contextual Q&A mode
+        if (window.isContextualQAMode) {
+            // Handle as a contextual question
+            handleContextualQuestion(message);
+            return;
+        }
         
         // Show typing indicator
         showTypingIndicator();
@@ -708,7 +717,17 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Function to summarize the current page
+    // Function to reset contextual Q&A mode
+    function resetContextualQAMode() {
+        window.isContextualQAMode = false;
+        window.currentPageContent = null;
+        userInput.placeholder = "Type your message here...";
+    }
+    
     function summarizeCurrentPage() {
+        // Reset contextual Q&A mode if active
+        resetContextualQAMode();
+        
         // Update status
         updateStatus('connecting', 'Getting page content...');
         
@@ -754,7 +773,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
                 
-                const pageContent = results[0].result;
+                const pageData = results[0].result;
                 
                 // Show a message that we're summarizing
                 const userTimestamp = new Date().toLocaleTimeString();
@@ -770,7 +789,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Create a prompt for summarization
                 const summarizePrompt = `Please provide a concise summary of the following webpage content. Focus on the main points and key information:
 
-${pageContent.substring(0, 15000)}${pageContent.length > 15000 ? '... (content truncated due to length)' : ''}`;
+Title: ${pageData.title}
+URL: ${pageData.url}
+
+Content:
+${pageData.content.substring(0, 15000)}${pageData.content.length > 15000 ? '... (content truncated due to length)' : ''}`;
                 
                 // Send to Ollama for summarization
                 chrome.runtime.sendMessage({
@@ -848,6 +871,147 @@ ${pageContent.substring(0, 15000)}${pageContent.length > 15000 ? '... (content t
         content = content.replace(/\s+/g, ' ').trim();
         
         // Return a structured object with the page information
-        return `Title: ${title}\nURL: ${url}\n\nContent:\n${content}`;
+        return {
+            title: title,
+            url: url,
+            content: content,
+            formatted: `Title: ${title}\nURL: ${url}\n\nContent:\n${content}`
+        };
+    }
+    
+    // Function to start contextual Q&A
+    function startContextualQA() {
+        // Reset contextual Q&A mode if already active
+        resetContextualQAMode();
+        
+        // Update status
+        updateStatus('connecting', 'Getting page content...');
+        
+        // Get the active tab
+        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+            const activeTab = tabs[0];
+            const timestamp = new Date().toLocaleTimeString();
+            
+            // Check if the URL is a restricted URL (chrome://, edge://, about:, etc.)
+            if (activeTab.url.startsWith('chrome://') || 
+                activeTab.url.startsWith('edge://') || 
+                activeTab.url.startsWith('about:') ||
+                activeTab.url.startsWith('chrome-extension://') ||
+                activeTab.url.startsWith('devtools://')) {
+                
+                // Show error message for restricted URLs
+                appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
+                appendMessage('system', 'Error: Cannot access content from ' + activeTab.url.split('/')[0] + '// URLs due to browser security restrictions.', timestamp);
+                appendMessage('system', 'Please navigate to a regular webpage to use the contextual Q&A feature.', timestamp);
+                updateStatus('offline', 'Cannot access this page type');
+                return;
+            }
+            
+            // Show a message that we're getting the page content
+            appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
+            
+            // Execute script to get page content
+            chrome.scripting.executeScript({
+                target: {tabId: activeTab.id},
+                function: getPageContent
+            }, function(results) {
+                if (chrome.runtime.lastError) {
+                    // Handle error
+                    const errorMessage = 'Error: ' + chrome.runtime.lastError.message;
+                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                    updateStatus('offline', 'Error getting page content');
+                    return;
+                }
+                
+                if (!results || !results[0] || !results[0].result) {
+                    appendMessage('system', 'Error: Could not extract page content', new Date().toLocaleTimeString());
+                    updateStatus('offline', 'Error getting page content');
+                    return;
+                }
+                
+                const pageData = results[0].result;
+                
+                // Store the page content in a global variable for later use
+                window.currentPageContent = pageData;
+                
+                // Show a message that we're ready for questions
+                appendMessage('system', 'Page content loaded. You can now ask questions about this page.', new Date().toLocaleTimeString());
+                updateStatus('online', 'Ready for questions');
+                
+                // Focus the input field
+                userInput.focus();
+                userInput.placeholder = "Ask a question about this page...";
+                
+                // Change the send button behavior to handle contextual questions
+                window.isContextualQAMode = true;
+            });
+        });
+    }
+    
+    // Function to handle contextual questions
+    function handleContextualQuestion(question) {
+        if (!window.currentPageContent) {
+            appendMessage('system', 'Error: No page content loaded. Please click "Ask about this page" first.', new Date().toLocaleTimeString());
+            return;
+        }
+        
+        // Show typing indicator
+        showTypingIndicator();
+        
+        // Create a prompt for the contextual question
+        const contextualPrompt = `The following is content from a webpage:
+        
+Title: ${window.currentPageContent.title}
+URL: ${window.currentPageContent.url}
+
+Content:
+${window.currentPageContent.content.substring(0, 15000)}${window.currentPageContent.content.length > 15000 ? '... (content truncated due to length)' : ''}
+
+Based on the webpage content above, please answer the following question:
+${question}`;
+        
+        // Send to Ollama for answering
+        chrome.runtime.sendMessage({
+            action: 'proxyOllamaRequest',
+            url: `${settings.serverUrl}/api/generate`,
+            method: 'POST',
+            body: {
+                model: settings.model,
+                prompt: contextualPrompt,
+                stream: false
+            }
+        }, function(response) {
+            // Remove typing indicator
+            removeTypingIndicator();
+            
+            if (response.success) {
+                // Check if the response was successful
+                if (response.data.status === 200) {
+                    // Add AI response to chat
+                    const aiTimestamp = new Date().toLocaleTimeString();
+                    const aiResponse = response.data.data.response;
+                    appendMessage('ai', aiResponse, aiTimestamp);
+                    
+                    // Save to chat history
+                    saveChatMessage('ai', aiResponse, aiTimestamp);
+                    
+                    // Update status
+                    updateStatus('online', 'Connected');
+                } else {
+                    // Handle error response from the server
+                    handleOllamaError({
+                        message: `Server returned ${response.data.status}: ${response.data.statusText}`,
+                        status: response.data.status,
+                        data: response.data.data
+                    });
+                }
+            } else {
+                // Handle error in the proxy request
+                handleOllamaError({
+                    message: response.error || 'Unknown error occurred',
+                    isConnectionError: true
+                });
+            }
+        });
     }
 });
