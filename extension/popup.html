@@ -5,6 +5,64 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Companion</title>
     <link rel="stylesheet" href="css/popup.css">
+    <style>
+        /* Additional styles for streaming toggle */
+        .toggle-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+            margin-right: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #4a6fa5;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .streaming-response {
+            white-space: pre-wrap;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -28,6 +86,13 @@
                         <option value="gemma">Gemma</option>
                     </select>
                 </div>
+                <div class="setting-item toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="streamingToggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Enable Streaming Responses</span>
+                </div>
                 <div class="setting-item">
                     <button id="saveSettings">Save Settings</button>
                 </div>
@@ -47,8 +112,8 @@
         </div>
         
         <div class="feature-info">
-            <h3>✨ New Feature: Grammar Checker</h3>
-            <p>Right-click in any text field on a webpage to access grammar checking and text improvement options.</p>
+            <h3>✨ New Feature: Streaming Responses</h3>
+            <p>Responses now stream in real-time for a more interactive experience. You can toggle this feature in settings.</p>
         </div>
 
         <div class="input-container">

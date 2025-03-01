@@ -1,9 +1,10 @@
-// Content script for AI Companion Grammar Checker
+// Content script for AI Companion Grammar Checker with streaming support
 // This script runs on web pages and adds grammar checking functionality
 
 // Store the current text field element
 let currentTextField = null;
 let grammarCheckerMenu = null;
+let currentStreamingPopup = null;
 
 // Create and inject the grammar checker menu
 function createGrammarCheckerMenu() {
@@ -124,6 +125,7 @@ function createGrammarCheckerMenu() {
         
         .ai-companion-result-content {
             margin-bottom: 15px;
+            white-space: pre-wrap;
         }
         
         .ai-companion-result-actions {
@@ -161,6 +163,20 @@ function createGrammarCheckerMenu() {
             height: 30px;
             animation: ai-companion-spin 1s linear infinite;
             margin-bottom: 15px;
+        }
+        
+        .ai-companion-cancel-button {
+            background-color: #f0f0f0;
+            color: #333;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        
+        .ai-companion-cancel-button:hover {
+            background-color: #e0e0e0;
         }
         
         @keyframes ai-companion-spin {
@@ -279,9 +295,35 @@ function processTextWithAI(text, mode, title) {
     // Create loading popup
     const popup = document.createElement('div');
     popup.className = 'ai-companion-result-popup';
+    popup.id = 'ai-companion-streaming-popup';
+    currentStreamingPopup = popup;
     
+    // Create header
+    const header = document.createElement('div');
+    header.className = 'ai-companion-result-header';
+    
+    const titleElement = document.createElement('div');
+    titleElement.className = 'ai-companion-result-title';
+    titleElement.textContent = title;
+    
+    const closeButton = document.createElement('button');
+    closeButton.className = 'ai-companion-result-close';
+    closeButton.textContent = '×';
+    closeButton.addEventListener('click', () => {
+        document.body.removeChild(popup);
+        // Cancel the streaming request if it's still in progress
+        chrome.runtime.sendMessage({
+            action: 'cancelStream'
+        });
+    });
+    
+    header.appendChild(titleElement);
+    header.appendChild(closeButton);
+    
+    // Create loading content
     const loadingContent = document.createElement('div');
     loadingContent.className = 'ai-companion-loading';
+    loadingContent.id = 'ai-companion-loading';
     
     const spinner = document.createElement('div');
     spinner.className = 'ai-companion-spinner';
@@ -289,11 +331,82 @@ function processTextWithAI(text, mode, title) {
     const loadingText = document.createElement('div');
     loadingText.textContent = 'Processing your text...';
     
+    const cancelButton = document.createElement('button');
+    cancelButton.className = 'ai-companion-cancel-button';
+    cancelButton.textContent = 'Cancel';
+    cancelButton.addEventListener('click', () => {
+        chrome.runtime.sendMessage({
+            action: 'cancelStream'
+        });
+        document.body.removeChild(popup);
+    });
+    
     loadingContent.appendChild(spinner);
     loadingContent.appendChild(loadingText);
-    popup.appendChild(loadingContent);
+    loadingContent.appendChild(cancelButton);
     
+    // Create content area (initially hidden)
+    const content = document.createElement('div');
+    content.className = 'ai-companion-result-content';
+    content.id = 'ai-companion-result-content';
+    content.style.display = 'none';
+    
+    // Create actions area (initially hidden)
+    const actions = document.createElement('div');
+    actions.className = 'ai-companion-result-actions';
+    actions.id = 'ai-companion-result-actions';
+    actions.style.display = 'none';
+    
+    const applyButton = document.createElement('button');
+    applyButton.className = 'ai-companion-result-button';
+    applyButton.textContent = 'Apply Changes';
+    applyButton.addEventListener('click', () => {
+        // Extract just the corrected text for grammar mode
+        let textToApply = content.textContent;
+        if (mode === 'grammar' && textToApply.includes('Corrections:')) {
+            textToApply = textToApply.split('Corrections:')[0].trim();
+        }
+        
+        setTextInField(currentTextField, textToApply);
+        document.body.removeChild(popup);
+    });
+    
+    const cancelActionButton = document.createElement('button');
+    cancelActionButton.textContent = 'Cancel';
+    cancelActionButton.style.backgroundColor = '#f0f0f0';
+    cancelActionButton.style.color = '#333';
+    cancelActionButton.style.border = 'none';
+    cancelActionButton.style.padding = '8px 15px';
+    cancelActionButton.style.borderRadius = '4px';
+    cancelActionButton.style.cursor = 'pointer';
+    cancelActionButton.addEventListener('click', () => {
+        document.body.removeChild(popup);
+    });
+    
+    actions.appendChild(cancelActionButton);
+    actions.appendChild(applyButton);
+    
+    // Assemble popup
+    popup.appendChild(header);
+    popup.appendChild(loadingContent);
+    popup.appendChild(content);
+    popup.appendChild(actions);
+    
+    // Add to page
     document.body.appendChild(popup);
+    
+    // Add event listener to close on escape key
+    const escapeHandler = (e) => {
+        if (e.key === 'Escape') {
+            document.body.removeChild(popup);
+            document.removeEventListener('keydown', escapeHandler);
+            // Cancel the streaming request if it's still in progress
+            chrome.runtime.sendMessage({
+                action: 'cancelStream'
+            });
+        }
+    };
+    document.addEventListener('keydown', escapeHandler);
     
     // Create prompt based on mode
     let prompt = '';
@@ -330,209 +443,95 @@ ${text}`;
         action: 'grammarCheck',
         text: text,
         prompt: prompt,
-        mode: mode
+        mode: mode,
+        tabId: chrome.runtime.id // Pass the tab ID for streaming updates
     }, function(response) {
-        // Remove loading popup
-        document.body.removeChild(popup);
-        
-        if (response && response.success) {
-            showResultPopup(text, response.result, title, mode);
+        if (response && response.streaming) {
+            // Initial streaming response - do nothing, updates will come via chrome.runtime.onMessage
+            console.log('Streaming started');
+        } else if (response && response.success) {
+            // Non-streaming response - update UI immediately
+            updateResultUI(response.result, mode);
         } else {
-            showErrorPopup(response ? response.error : 'Unknown error occurred');
+            // Error response
+            showErrorInPopup(response ? response.error : 'Unknown error occurred');
         }
     });
 }
 
-// Show result popup
-function showResultPopup(originalText, aiResult, title, mode) {
-    const popup = document.createElement('div');
-    popup.className = 'ai-companion-result-popup';
-    
-    // Create header
-    const header = document.createElement('div');
-    header.className = 'ai-companion-result-header';
-    
-    const titleElement = document.createElement('div');
-    titleElement.className = 'ai-companion-result-title';
-    titleElement.textContent = title;
-    
-    const closeButton = document.createElement('button');
-    closeButton.className = 'ai-companion-result-close';
-    closeButton.textContent = '×';
-    closeButton.addEventListener('click', () => {
-        document.body.removeChild(popup);
-    });
-    
-    header.appendChild(titleElement);
-    header.appendChild(closeButton);
-    
-    // Create content
-    const content = document.createElement('div');
-    content.className = 'ai-companion-result-content';
-    
-    // Format the result based on mode
-    if (mode === 'grammar' && aiResult.includes('Corrections:')) {
-        // For grammar mode, try to extract the corrected text and explanations
-        const parts = aiResult.split('Corrections:');
-        const correctedText = parts[0].trim();
-        const explanations = parts[1] ? parts[1].trim() : '';
-        
-        const correctedTextElement = document.createElement('div');
-        correctedTextElement.style.marginBottom = '15px';
-        correctedTextElement.style.padding = '10px';
-        correctedTextElement.style.backgroundColor = '#f9f9f9';
-        correctedTextElement.style.borderRadius = '4px';
-        correctedTextElement.style.whiteSpace = 'pre-wrap';
-        correctedTextElement.textContent = correctedText;
-        
-        const explanationsTitle = document.createElement('div');
-        explanationsTitle.style.fontWeight = 'bold';
-        explanationsTitle.style.marginTop = '10px';
-        explanationsTitle.textContent = 'Explanations:';
-        
-        const explanationsElement = document.createElement('div');
-        explanationsElement.style.whiteSpace = 'pre-wrap';
-        explanationsElement.textContent = explanations;
-        
-        content.appendChild(correctedTextElement);
-        if (explanations) {
-            content.appendChild(explanationsTitle);
-            content.appendChild(explanationsElement);
+// Listen for streaming updates
+chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
+    if (message.action === 'streamUpdate') {
+        if (message.success) {
+            // Update the UI with the latest streaming content
+            updateResultUI(message.result, null, message.done);
+        } else {
+            // Show error
+            showErrorInPopup(message.error || 'Unknown error occurred');
         }
-    } else {
-        // For other modes, just show the result
-        content.style.whiteSpace = 'pre-wrap';
-        content.textContent = aiResult;
+    }
+    return true;
+});
+
+// Update the result UI with streaming content
+function updateResultUI(result, mode, isDone = false) {
+    if (!currentStreamingPopup || !document.getElementById('ai-companion-streaming-popup')) {
+        return; // Popup was closed
     }
     
-    // Create actions
-    const actions = document.createElement('div');
-    actions.className = 'ai-companion-result-actions';
+    const loadingElement = document.getElementById('ai-companion-loading');
+    const contentElement = document.getElementById('ai-companion-result-content');
+    const actionsElement = document.getElementById('ai-companion-result-actions');
     
-    const applyButton = document.createElement('button');
-    applyButton.className = 'ai-companion-result-button';
-    applyButton.textContent = 'Apply Changes';
-    applyButton.addEventListener('click', () => {
-        // Extract just the corrected text for grammar mode
-        let textToApply = aiResult;
-        if (mode === 'grammar' && aiResult.includes('Corrections:')) {
-            textToApply = aiResult.split('Corrections:')[0].trim();
-        }
-        
-        setTextInField(currentTextField, textToApply);
-        document.body.removeChild(popup);
-    });
+    // Update content
+    contentElement.textContent = result;
     
-    const cancelButton = document.createElement('button');
-    cancelButton.textContent = 'Cancel';
-    cancelButton.style.backgroundColor = '#f0f0f0';
-    cancelButton.style.color = '#333';
-    cancelButton.style.border = 'none';
-    cancelButton.style.padding = '8px 15px';
-    cancelButton.style.borderRadius = '4px';
-    cancelButton.style.cursor = 'pointer';
-    cancelButton.addEventListener('click', () => {
-        document.body.removeChild(popup);
-    });
+    // If this is the first update or it's done, show the content and hide loading
+    if (loadingElement.style.display !== 'none' || isDone) {
+        loadingElement.style.display = 'none';
+        contentElement.style.display = 'block';
+    }
     
-    actions.appendChild(cancelButton);
-    actions.appendChild(applyButton);
-    
-    // Assemble popup
-    popup.appendChild(header);
-    popup.appendChild(content);
-    popup.appendChild(actions);
-    
-    // Add to page
-    document.body.appendChild(popup);
-    
-    // Add event listener to close on escape key
-    const escapeHandler = (e) => {
-        if (e.key === 'Escape') {
-            document.body.removeChild(popup);
-            document.removeEventListener('keydown', escapeHandler);
-        }
-    };
-    document.addEventListener('keydown', escapeHandler);
+    // If it's done, show the action buttons
+    if (isDone) {
+        actionsElement.style.display = 'flex';
+    }
 }
 
-// Show error popup
-function showErrorPopup(errorMessage) {
-    const popup = document.createElement('div');
-    popup.className = 'ai-companion-result-popup';
+// Show error in the popup
+function showErrorInPopup(errorMessage) {
+    if (!currentStreamingPopup || !document.getElementById('ai-companion-streaming-popup')) {
+        return; // Popup was closed
+    }
     
-    // Create header
-    const header = document.createElement('div');
-    header.className = 'ai-companion-result-header';
+    const loadingElement = document.getElementById('ai-companion-loading');
+    const contentElement = document.getElementById('ai-companion-result-content');
     
-    const titleElement = document.createElement('div');
-    titleElement.className = 'ai-companion-result-title';
-    titleElement.textContent = 'Error';
-    
-    const closeButton = document.createElement('button');
-    closeButton.className = 'ai-companion-result-close';
-    closeButton.textContent = '×';
-    closeButton.addEventListener('click', () => {
-        document.body.removeChild(popup);
-    });
-    
-    header.appendChild(titleElement);
-    header.appendChild(closeButton);
-    
-    // Create content
-    const content = document.createElement('div');
-    content.className = 'ai-companion-result-content';
-    content.textContent = errorMessage || 'An error occurred while processing your text. Please try again.';
-    content.style.color = '#F44336';
-    
-    // Create actions
-    const actions = document.createElement('div');
-    actions.className = 'ai-companion-result-actions';
-    
-    const okButton = document.createElement('button');
-    okButton.className = 'ai-companion-result-button';
-    okButton.textContent = 'OK';
-    okButton.addEventListener('click', () => {
-        document.body.removeChild(popup);
-    });
-    
-    actions.appendChild(okButton);
-    
-    // Assemble popup
-    popup.appendChild(header);
-    popup.appendChild(content);
-    popup.appendChild(actions);
-    
-    // Add to page
-    document.body.appendChild(popup);
+    // Hide loading and show error
+    loadingElement.style.display = 'none';
+    contentElement.style.display = 'block';
+    contentElement.innerHTML = `<div style="color: #721c24; background-color: #f8d7da; padding: 10px; border-radius: 4px;">
+        <strong>Error:</strong> ${errorMessage}
+    </div>`;
 }
 
-// Listen for context menu events on text fields
+// Add context menu to text fields
 document.addEventListener('contextmenu', function(event) {
-    // Check if the target is a text field
-    const target = event.target;
-    if (
-        target.tagName === 'TEXTAREA' || 
-        target.tagName === 'INPUT' && (target.type === 'text' || target.type === 'email' || target.type === 'search') ||
-        target.isContentEditable
-    ) {
+    // Check if right-clicked on a text field
+    if (event.target.tagName === 'TEXTAREA' || 
+        event.target.tagName === 'INPUT' && (event.target.type === 'text' || event.target.type === 'search') ||
+        event.target.isContentEditable) {
+        
         // Store the current text field
-        currentTextField = target;
+        currentTextField = event.target;
         
         // Show the grammar checker menu
-        showGrammarCheckerMenu(event.clientX, event.clientY);
+        showGrammarCheckerMenu(event.pageX, event.pageY);
     } else {
-        // Hide the menu if clicking outside a text field
+        // Hide the menu if clicking elsewhere
         hideGrammarCheckerMenu();
     }
 });
 
-// Listen for messages from the background script
-chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.action === 'grammarCheckResult') {
-        // Handle the result
-        sendResponse({ received: true });
-    }
-});
-
-console.log('AI Companion Grammar Checker content script loaded');
+// Initialize the menu when the content script loads
+createGrammarCheckerMenu();

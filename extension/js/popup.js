@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const refreshModelsButton = document.getElementById('refreshModels');
     const statusIndicator = document.getElementById('statusIndicator');
     const statusText = document.getElementById('statusText');
+    const streamingToggle = document.getElementById('streamingToggle');
     
     // Debug mode - can be enabled by typing "debug:on" in the chat
     let debugMode = false;
@@ -20,7 +21,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Default settings
     let settings = {
         serverUrl: 'http://localhost:11434',
-        model: 'llama2'
+        model: 'llama2',
+        enableStreaming: true
     };
 
     // Load settings from storage
@@ -29,8 +31,14 @@ document.addEventListener('DOMContentLoaded', function() {
             settings = result.settings;
             serverUrlInput.value = settings.serverUrl;
             modelSelect.value = settings.model;
+            if (streamingToggle) {
+                streamingToggle.checked = settings.enableStreaming !== false;
+            }
         } else {
             serverUrlInput.value = settings.serverUrl;
+            if (streamingToggle) {
+                streamingToggle.checked = true;
+            }
         }
         
         // Check connection to Ollama server
@@ -80,6 +88,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function saveSettings() {
         settings.serverUrl = serverUrlInput.value.trim();
         settings.model = modelSelect.value;
+        if (streamingToggle) {
+            settings.enableStreaming = streamingToggle.checked;
+        }
         
         chrome.storage.local.set({ settings: settings }, function() {
             checkServerConnection();
@@ -252,50 +263,154 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Show typing indicator
-        showTypingIndicator();
+        const typingIndicator = showTypingIndicator();
         
-        // Use the background script to proxy the request to avoid CORS issues
-        chrome.runtime.sendMessage({
-            action: 'proxyOllamaRequest',
-            url: `${settings.serverUrl}/api/generate`,
-            method: 'POST',
-            body: {
-                model: settings.model,
-                prompt: message,
-                stream: false
-            }
-        }, function(response) {
-            // Remove typing indicator
-            removeTypingIndicator();
-            
-            if (response.success) {
-                // Check if the response was successful
-                if (response.data.status === 200) {
-                    // Add AI response to chat
-                    const aiTimestamp = new Date().toLocaleTimeString();
-                    const aiResponse = response.data.data.response;
-                    appendMessage('ai', aiResponse, aiTimestamp);
-                    
-                    // Save to chat history
-                    saveChatMessage('ai', aiResponse, aiTimestamp);
-                    
-                    // Update status
-                    updateStatus('online', 'Connected');
+        if (settings.enableStreaming) {
+            // Handle streaming response
+            handleStreamingResponse(message, typingIndicator);
+        } else {
+            // Use the background script to proxy the request to avoid CORS issues (non-streaming)
+            chrome.runtime.sendMessage({
+                action: 'proxyOllamaRequest',
+                url: `${settings.serverUrl}/api/generate`,
+                method: 'POST',
+                body: {
+                    model: settings.model,
+                    prompt: message,
+                    stream: false
+                }
+            }, function(response) {
+                // Remove typing indicator
+                removeTypingIndicator();
+                
+                if (response.success) {
+                    // Check if the response was successful
+                    if (response.data.status === 200) {
+                        // Add AI response to chat
+                        const aiTimestamp = new Date().toLocaleTimeString();
+                        const aiResponse = response.data.data.response;
+                        appendMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Save to chat history
+                        saveChatMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Update status
+                        updateStatus('online', 'Connected');
+                    } else {
+                        // Handle error response from the server
+                        handleOllamaError({
+                            message: `Server returned ${response.data.status}: ${response.data.statusText}`,
+                            status: response.data.status,
+                            data: response.data.data
+                        });
+                    }
                 } else {
-                    // Handle error response from the server
+                    // Handle error in the proxy request
                     handleOllamaError({
-                        message: `Server returned ${response.data.status}: ${response.data.statusText}`,
-                        status: response.data.status,
-                        data: response.data.data
+                        message: response.error || 'Unknown error occurred',
+                        isConnectionError: true
                     });
                 }
-            } else {
-                // Handle error in the proxy request
-                handleOllamaError({
-                    message: response.error || 'Unknown error occurred',
-                    isConnectionError: true
+            });
+        }
+    }
+    
+    // Handle streaming response
+    function handleStreamingResponse(message, typingIndicator) {
+        // Create a message element for the streaming response
+        const aiTimestamp = new Date().toLocaleTimeString();
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message ai-message';
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const senderIcon = document.createElement('div');
+        senderIcon.className = 'sender-icon';
+        senderIcon.textContent = 'AI';
+        
+        const timestampSpan = document.createElement('div');
+        timestampSpan.className = 'timestamp';
+        timestampSpan.textContent = aiTimestamp;
+        
+        messageHeader.appendChild(senderIcon);
+        messageHeader.appendChild(timestampSpan);
+        
+        const messageText = document.createElement('div');
+        messageText.className = 'message-text streaming-response';
+        
+        messageDiv.appendChild(messageHeader);
+        messageDiv.appendChild(messageText);
+        
+        // Remove typing indicator and add the streaming message
+        if (typingIndicator) {
+            chatContainer.removeChild(typingIndicator);
+        }
+        chatContainer.appendChild(messageDiv);
+        scrollToBottom();
+        
+        // Start the streaming request
+        let fullResponse = '';
+        
+        // Use fetch directly for streaming
+        fetch(`${settings.serverUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: settings.model,
+                prompt: message,
+                stream: true
+            })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+            }
+            
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            function readStream() {
+                return reader.read().then(({ done, value }) => {
+                    if (done) {
+                        // Save to chat history when stream is complete
+                        saveChatMessage('ai', fullResponse, aiTimestamp);
+                        return;
+                    }
+                    
+                    // Decode the chunk
+                    const chunk = decoder.decode(value, { stream: true });
+                    
+                    // Process the chunk (each chunk may contain multiple JSON objects)
+                    const lines = chunk.split('\n').filter(line => line.trim());
+                    
+                    for (const line of lines) {
+                        try {
+                            const data = JSON.parse(line);
+                            if (data.response) {
+                                fullResponse += data.response;
+                                // Update the message text with the current full response
+                                messageText.textContent = removeThinkBlocks(fullResponse);
+                                scrollToBottom();
+                            }
+                        } catch (e) {
+                            console.error('Error parsing JSON:', e, line);
+                        }
+                    }
+                    
+                    // Continue reading the stream
+                    return readStream();
                 });
             }
+            
+            return readStream();
+        })
+        .catch(error => {
+            console.error('Streaming error:', error);
+            messageText.innerHTML = `<span style="color: #721c24;">Error: ${error.message}</span>`;
+            updateStatus('offline', 'Error: ' + error.message);
         });
     }
     
@@ -364,6 +479,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
         
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const senderIcon = document.createElement('div');
+        senderIcon.className = 'sender-icon';
+        senderIcon.textContent = sender === 'user' ? 'You' : 'AI';
+        
+        const timestampSpan = document.createElement('div');
+        timestampSpan.className = 'timestamp';
+        timestampSpan.textContent = timestamp;
+        
+        messageHeader.appendChild(senderIcon);
+        messageHeader.appendChild(timestampSpan);
+        
         const messageText = document.createElement('div');
         messageText.className = 'message-text';
         
@@ -377,25 +506,21 @@ document.addEventListener('DOMContentLoaded', function() {
             // Split by newline and create paragraph elements
             const paragraphs = text.split('\n');
             paragraphs.forEach((paragraph, index) => {
-                if (paragraph.trim() !== '') {
+                if (paragraph.trim()) {
                     const p = document.createElement('p');
                     p.textContent = paragraph;
                     messageText.appendChild(p);
-                } else if (index < paragraphs.length - 1) {
-                    // Add empty line for readability, but not at the end
-                    messageText.appendChild(document.createElement('br'));
+                } else if (index > 0 && index < paragraphs.length - 1) {
+                    // Add empty paragraph for spacing between paragraphs
+                    messageText.appendChild(document.createElement('p'));
                 }
             });
         } else {
             messageText.textContent = text;
         }
         
-        const messageTime = document.createElement('div');
-        messageTime.className = 'message-time';
-        messageTime.textContent = timestamp;
-        
+        messageDiv.appendChild(messageHeader);
         messageDiv.appendChild(messageText);
-        messageDiv.appendChild(messageTime);
         
         chatContainer.appendChild(messageDiv);
         scrollToBottom();
@@ -403,22 +528,39 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function showTypingIndicator() {
         const typingDiv = document.createElement('div');
-        typingDiv.className = 'typing-indicator';
-        typingDiv.id = 'typingIndicator';
+        typingDiv.className = 'message ai-message typing-indicator';
+        
+        const messageHeader = document.createElement('div');
+        messageHeader.className = 'message-header';
+        
+        const senderIcon = document.createElement('div');
+        senderIcon.className = 'sender-icon';
+        senderIcon.textContent = 'AI';
+        
+        messageHeader.appendChild(senderIcon);
+        
+        const typingAnimation = document.createElement('div');
+        typingAnimation.className = 'typing-animation';
         
         for (let i = 0; i < 3; i++) {
             const dot = document.createElement('span');
-            typingDiv.appendChild(dot);
+            dot.className = 'dot';
+            typingAnimation.appendChild(dot);
         }
+        
+        typingDiv.appendChild(messageHeader);
+        typingDiv.appendChild(typingAnimation);
         
         chatContainer.appendChild(typingDiv);
         scrollToBottom();
+        
+        return typingDiv;
     }
 
     function removeTypingIndicator() {
-        const typingIndicator = document.getElementById('typingIndicator');
+        const typingIndicator = document.querySelector('.typing-indicator');
         if (typingIndicator) {
-            typingIndicator.remove();
+            chatContainer.removeChild(typingIndicator);
         }
     }
 
@@ -427,222 +569,84 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function saveChatMessage(sender, text, timestamp) {
-        // Process text to remove <think> blocks if it's an AI message
-        if (sender === 'ai') {
-            text = removeThinkBlocks(text);
-        }
-        
         chrome.storage.local.get(['chatHistory'], function(result) {
-            let chatHistory = result.chatHistory || [];
+            const chatHistory = result.chatHistory || [];
             chatHistory.push({
                 sender: sender,
                 text: text,
                 timestamp: timestamp
             });
             
-            // Limit history to last 50 messages
-            if (chatHistory.length > 50) {
-                chatHistory = chatHistory.slice(chatHistory.length - 50);
+            // Limit history to last 100 messages
+            if (chatHistory.length > 100) {
+                chatHistory.shift();
             }
             
             chrome.storage.local.set({ chatHistory: chatHistory });
         });
     }
-    
+
     function handleDebugCommand(command) {
         const timestamp = new Date().toLocaleTimeString();
-        let responseMessage = '';
+        
+        if (command === 'debug:on') {
+            debugMode = true;
+            appendMessage('system', 'Debug mode enabled', timestamp);
+        } else if (command === 'debug:off') {
+            debugMode = false;
+            appendMessage('system', 'Debug mode disabled', timestamp);
+        } else if (command === 'debug:clear') {
+            chrome.storage.local.remove(['chatHistory'], function() {
+                chatContainer.innerHTML = '';
+                appendMessage('system', 'Chat history cleared', timestamp);
+            });
+        } else if (command === 'debug:status') {
+            appendMessage('system', `Debug mode: ${debugMode ? 'ON' : 'OFF'}\nServer URL: ${settings.serverUrl}\nModel: ${settings.model}\nStreaming: ${settings.enableStreaming ? 'ON' : 'OFF'}`, timestamp);
+        } else {
+            appendMessage('system', 'Unknown debug command. Available commands: debug:on, debug:off, debug:clear, debug:status', timestamp);
+        }
         
         // Clear input
         userInput.value = '';
         userInput.style.height = 'auto';
-        
-        // Process command
-        if (command === 'debug:on') {
-            debugMode = true;
-            responseMessage = 'Debug mode enabled. Available commands:\n' +
-                'debug:off - Turn off debug mode\n' +
-                'debug:status - Show current status and settings\n' +
-                'debug:clear - Clear chat history\n' +
-                'debug:test - Test connection to Ollama server\n' +
-                'debug:models - Show available models\n' +
-                'debug:chat [message] - Test chat with detailed logging\n' +
-                'debug:ping - Simple ping test to Ollama server';
-        } else if (command === 'debug:off') {
-            debugMode = false;
-            responseMessage = 'Debug mode disabled.';
-        } else if (command === 'debug:status') {
-            responseMessage = 'Current Status:\n' +
-                `Debug Mode: ${debugMode ? 'Enabled' : 'Disabled'}\n` +
-                `Server URL: ${settings.serverUrl}\n` +
-                `Current Model: ${settings.model}\n` +
-                `Connection Status: ${statusText.textContent}`;
-        } else if (command === 'debug:clear') {
-            // Clear chat container
-            chatContainer.innerHTML = '';
-            // Clear chat history
-            chrome.storage.local.set({ chatHistory: [] });
-            responseMessage = 'Chat history cleared.';
-        } else if (command === 'debug:test') {
-            // Test connection to Ollama server
-            responseMessage = 'Testing connection to Ollama server...';
-            appendMessage('system', responseMessage, timestamp);
+    }
+
+    function summarizeCurrentPage() {
+        // Get the active tab
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+            if (tabs.length === 0) return;
             
-            // Use the background script to proxy the request to avoid CORS issues
-            chrome.runtime.sendMessage({
-                action: 'proxyOllamaRequest',
-                url: `${settings.serverUrl}/api/tags`,
-                method: 'GET'
-            }, function(response) {
-                let testResult = '';
-                
-                if (response.success) {
-                    // Check if the response was successful
-                    if (response.data.status === 200) {
-                        // Parse the response data
-                        let data;
-                        try {
-                            data = typeof response.data.data === 'string' 
-                                ? JSON.parse(response.data.data) 
-                                : response.data.data;
-                            
-                            testResult = 'Connection successful!\n\n' +
-                                `Server URL: ${settings.serverUrl}\n` +
-                                `API Version: ${data.ollama?.version || 'Unknown'}\n` +
-                                `Available Models: ${data.models?.length || 0}\n\n` +
-                                'Raw Response:\n' + JSON.stringify(data, null, 2);
-                        } catch (e) {
-                            testResult = `Connection successful but error parsing response: ${e.message}\n\n` +
-                                `Raw Response: ${JSON.stringify(response.data.data)}`;
-                        }
-                    } else {
-                        // Handle error response from the server
-                        testResult = `Connection failed: Server returned ${response.data.status}: ${response.data.statusText}\n\n`;
-                        
-                        // Add response data if available
-                        if (response.data.data) {
-                            testResult += `Response data: ${typeof response.data.data === 'string' ? response.data.data : JSON.stringify(response.data.data)}`;
-                        }
-                    }
-                } else {
-                    // Handle error in the proxy request
-                    testResult = `Connection error: ${response.error || 'Unknown error'}\n\n` +
-                        'This could be due to:\n' +
-                        '1. Ollama not running\n' +
-                        '2. Incorrect server URL\n' +
-                        '3. Network issues\n' +
-                        '4. CORS restrictions';
+            const activeTab = tabs[0];
+            
+            // Show a message that we're fetching the page content
+            const timestamp = new Date().toLocaleTimeString();
+            appendMessage('system', 'Fetching page content...', timestamp);
+            
+            // Request the page content from the content script
+            chrome.tabs.sendMessage(activeTab.id, { action: 'getPageContent' }, function(response) {
+                if (chrome.runtime.lastError) {
+                    // Content script might not be injected yet
+                    appendMessage('system', 'Error: Could not access page content. Please refresh the page and try again.', timestamp);
+                    return;
                 }
                 
-                appendMessage('system', testResult, new Date().toLocaleTimeString());
-            });
-            
-            return; // Don't append another message
-        } else if (command === 'debug:models') {
-            // Show available models
-            responseMessage = 'Fetching available models...';
-            appendMessage('system', responseMessage, timestamp);
-            
-            // Use the background script to proxy the request to avoid CORS issues
-            chrome.runtime.sendMessage({
-                action: 'proxyOllamaRequest',
-                url: `${settings.serverUrl}/api/tags`,
-                method: 'GET'
-            }, function(response) {
-                if (response.success) {
-                    // Check if the response was successful
-                    if (response.data.status === 200) {
-                        // Parse the response data
-                        let data;
-                        try {
-                            data = typeof response.data.data === 'string' 
-                                ? JSON.parse(response.data.data) 
-                                : response.data.data;
-                            
-                            if (data.models && data.models.length > 0) {
-                                const modelList = data.models.map(model => 
-                                    `${model.name} (${(model.size / (1024*1024*1024)).toFixed(2)} GB)`
-                                ).join('\n');
-                                const modelMessage = `Available Models:\n${modelList}`;
-                                appendMessage('system', modelMessage, new Date().toLocaleTimeString());
-                            } else {
-                                appendMessage('system', 'No models found on the Ollama server.', new Date().toLocaleTimeString());
-                            }
-                        } catch (e) {
-                            const errorMessage = `Error parsing model data: ${e.message}`;
-                            appendMessage('system', errorMessage, new Date().toLocaleTimeString());
-                        }
-                    } else {
-                        // Handle error response from the server
-                        const errorMessage = `Failed to fetch models: Server returned ${response.data.status}: ${response.data.statusText}`;
-                        appendMessage('system', errorMessage, new Date().toLocaleTimeString());
-                        
-                        // Add response data if available
-                        if (response.data.data) {
-                            const dataMessage = `Response data: ${typeof response.data.data === 'string' ? response.data.data : JSON.stringify(response.data.data)}`;
-                            appendMessage('system', dataMessage, new Date().toLocaleTimeString());
-                        }
-                    }
-                } else {
-                    // Handle error in the proxy request
-                    const errorMessage = `Error fetching models: ${response.error || 'Unknown error'}`;
-                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+                if (!response || !response.content) {
+                    appendMessage('system', 'Error: Could not retrieve page content.', timestamp);
+                    return;
                 }
-            });
-            
-            return; // Don't append another message
-        } else if (command === 'debug:ping') {
-            // Simple ping test to Ollama server
-            responseMessage = 'Pinging Ollama server...';
-            appendMessage('system', responseMessage, timestamp);
-            
-            // Use a simple fetch directly (not through the proxy) to test basic connectivity
-            fetch(`${settings.serverUrl}/api/tags`, {
-                method: 'GET',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            })
-            .then(response => {
-                const pingResult = `Direct ping result: ${response.status} ${response.statusText}`;
-                appendMessage('system', pingResult, new Date().toLocaleTimeString());
                 
-                // Now try with the proxy
-                appendMessage('system', 'Pinging through proxy...', new Date().toLocaleTimeString());
+                // Get the page title and URL
+                const pageTitle = activeTab.title || 'Unknown page';
+                const pageUrl = activeTab.url || 'Unknown URL';
                 
-                chrome.runtime.sendMessage({
-                    action: 'proxyOllamaRequest',
-                    url: `${settings.serverUrl}/api/tags`,
-                    method: 'GET'
-                }, function(proxyResponse) {
-                    const proxyResult = `Proxy ping result: ${proxyResponse.success ? 'Success' : 'Failed'}`;
-                    appendMessage('system', proxyResult, new Date().toLocaleTimeString());
-                    
-                    if (proxyResponse.success) {
-                        appendMessage('system', `Status: ${proxyResponse.data.status} ${proxyResponse.data.statusText}`, new Date().toLocaleTimeString());
-                    } else {
-                        appendMessage('system', `Error: ${proxyResponse.error}`, new Date().toLocaleTimeString());
-                    }
-                });
-            })
-            .catch(error => {
-                const errorMessage = `Direct ping error: ${error.message}`;
-                appendMessage('system', errorMessage, new Date().toLocaleTimeString());
-            });
-            
-            return; // Don't append another message
-        } else if (command.startsWith('debug:chat ')) {
-            // Test chat with a simple message
-            const testMessage = command.substring('debug:chat '.length);
-            if (!testMessage) {
-                responseMessage = 'Please provide a test message. Example: debug:chat Hello, how are you?';
-            } else {
-                responseMessage = `Sending test message: "${testMessage}"`;
-                appendMessage('system', responseMessage, timestamp);
-                
-                // Show request details
-                const requestDetails = `Request Details:\nURL: ${settings.serverUrl}/api/generate\nModel: ${settings.model}\nPrompt: ${testMessage}`;
-                appendMessage('system', requestDetails, new Date().toLocaleTimeString());
+                // Create a prompt for summarization
+                const prompt = `Please summarize the following webpage content. Focus on the main points and key information.
+
+Page Title: ${pageTitle}
+URL: ${pageUrl}
+
+Content:
+${response.content.substring(0, 15000)}`;  // Limit content to avoid token limits
                 
                 // Show typing indicator
                 showTypingIndicator();
@@ -654,156 +658,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     method: 'POST',
                     body: {
                         model: settings.model,
-                        prompt: testMessage,
-                        stream: false
-                    }
-                }, function(response) {
-                    // Remove typing indicator
-                    removeTypingIndicator();
-                    
-                    // Log raw response
-                    appendMessage('system', `Raw Response:\n${JSON.stringify(response, null, 2).substring(0, 500)}${JSON.stringify(response, null, 2).length > 500 ? '...(truncated)' : ''}`, new Date().toLocaleTimeString());
-                    
-                    if (response.success) {
-                        // Check if the response was successful
-                        if (response.data.status === 200) {
-                            // Log parsed response
-                            appendMessage('system', `Parsed Response:\n${JSON.stringify(response.data.data, null, 2)}`, new Date().toLocaleTimeString());
-                            
-                            // Add AI response to chat
-                            const aiTimestamp = new Date().toLocaleTimeString();
-                            appendMessage('ai', response.data.data.response, aiTimestamp);
-                        } else {
-                            // Handle error response from the server
-                            const errorTimestamp = new Date().toLocaleTimeString();
-                            appendMessage('system', `Error: Server returned ${response.data.status}: ${response.data.statusText}`, errorTimestamp);
-                            
-                            // Show error details if available
-                            if (response.data.data) {
-                                try {
-                                    const errorDetails = typeof response.data.data === 'string' 
-                                        ? response.data.data 
-                                        : JSON.stringify(response.data.data, null, 2);
-                                    appendMessage('system', `Error Details:\n${errorDetails}`, errorTimestamp);
-                                } catch (e) {
-                                    appendMessage('system', `Error parsing error details: ${e.message}`, errorTimestamp);
-                                }
-                            }
-                        }
-                    } else {
-                        // Handle error in the proxy request
-                        const errorTimestamp = new Date().toLocaleTimeString();
-                        appendMessage('system', `Proxy Error: ${response.error || 'Unknown error occurred'}`, errorTimestamp);
-                    }
-                });
-                
-                return; // Don't append another message
-            }
-        
-        } else {
-            responseMessage = `Unknown debug command: ${command}\n` +
-                'Available commands:\n' +
-                'debug:on - Turn on debug mode\n' +
-                'debug:off - Turn off debug mode\n' +
-                'debug:status - Show current status and settings\n' +
-                'debug:clear - Clear chat history\n' +
-                'debug:test - Test connection to Ollama server\n' +
-                'debug:models - Show available models\n' +
-                'debug:chat [message] - Test chat with detailed logging\n' +
-                'debug:ping - Simple ping test to Ollama server';
-        }
-        
-        appendMessage('system', responseMessage, timestamp);
-    }
-
-    // Function to summarize the current page
-    // Function to reset contextual Q&A mode
-    function resetContextualQAMode() {
-        window.isContextualQAMode = false;
-        window.currentPageContent = null;
-        userInput.placeholder = "Type your message here...";
-    }
-    
-    function summarizeCurrentPage() {
-        // Reset contextual Q&A mode if active
-        resetContextualQAMode();
-        
-        // Update status
-        updateStatus('connecting', 'Getting page content...');
-        
-        // Get the active tab
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-            const activeTab = tabs[0];
-            const timestamp = new Date().toLocaleTimeString();
-            
-            // Check if the URL is a restricted URL (chrome://, edge://, about:, etc.)
-            if (activeTab.url.startsWith('chrome://') || 
-                activeTab.url.startsWith('edge://') || 
-                activeTab.url.startsWith('about:') ||
-                activeTab.url.startsWith('chrome-extension://') ||
-                activeTab.url.startsWith('devtools://')) {
-                
-                // Show error message for restricted URLs
-                appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
-                appendMessage('system', 'Error: Cannot access content from ' + activeTab.url.split('/')[0] + '// URLs due to browser security restrictions.', timestamp);
-                appendMessage('system', 'Please navigate to a regular webpage to use the summarize feature.', timestamp);
-                updateStatus('offline', 'Cannot access this page type');
-                return;
-            }
-            
-            // Show a message that we're getting the page content
-            appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
-            
-            // Execute script to get page content
-            chrome.scripting.executeScript({
-                target: {tabId: activeTab.id},
-                function: getPageContent
-            }, function(results) {
-                if (chrome.runtime.lastError) {
-                    // Handle error
-                    const errorMessage = 'Error: ' + chrome.runtime.lastError.message;
-                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
-                    updateStatus('offline', 'Error getting page content');
-                    return;
-                }
-                
-                if (!results || !results[0] || !results[0].result) {
-                    appendMessage('system', 'Error: Could not extract page content', new Date().toLocaleTimeString());
-                    updateStatus('offline', 'Error getting page content');
-                    return;
-                }
-                
-                const pageData = results[0].result;
-                
-                // Show a message that we're summarizing
-                const userTimestamp = new Date().toLocaleTimeString();
-                const userMessage = 'Please summarize this page for me.';
-                appendMessage('user', userMessage, userTimestamp);
-                
-                // Save to chat history
-                saveChatMessage('user', userMessage, userTimestamp);
-                
-                // Show typing indicator
-                showTypingIndicator();
-                
-                // Create a prompt for summarization
-                const summarizePrompt = `Please provide a concise summary of the following webpage content. Focus on the main points and key information:
-
-Title: ${pageData.title}
-URL: ${pageData.url}
-
-Content:
-${pageData.content.substring(0, 15000)}${pageData.content.length > 15000 ? '... (content truncated due to length)' : ''}`;
-                
-                // Send to Ollama for summarization
-                chrome.runtime.sendMessage({
-                    action: 'proxyOllamaRequest',
-                    url: `${settings.serverUrl}/api/generate`,
-                    method: 'POST',
-                    body: {
-                        model: settings.model,
-                        prompt: summarizePrompt,
-                        stream: false
+                        prompt: prompt,
+                        stream: settings.enableStreaming
                     }
                 }, function(response) {
                     // Remove typing indicator
@@ -841,177 +697,139 @@ ${pageData.content.substring(0, 15000)}${pageData.content.length > 15000 ? '... 
             });
         });
     }
-    
-    // Function to get page content (executed in the context of the page)
-    function getPageContent() {
-        // Get the main content of the page
-        // This is a simple implementation that gets text from the body
-        // You might want to improve this to focus on the main content area
-        
-        // Get the page title
-        const title = document.title;
-        
-        // Get the page URL
-        const url = window.location.href;
-        
-        // Get the page content
-        // First try to get the main content if it exists
-        let content = '';
-        
-        // Try to get content from article or main elements first
-        const mainContent = document.querySelector('article, main, #content, .content, [role="main"]');
-        if (mainContent) {
-            content = mainContent.innerText;
-        } else {
-            // Fallback to body content
-            content = document.body.innerText;
-        }
-        
-        // Clean up the content (remove extra whitespace)
-        content = content.replace(/\s+/g, ' ').trim();
-        
-        // Return a structured object with the page information
-        return {
-            title: title,
-            url: url,
-            content: content,
-            formatted: `Title: ${title}\nURL: ${url}\n\nContent:\n${content}`
-        };
-    }
-    
-    // Function to start contextual Q&A
+
     function startContextualQA() {
-        // Reset contextual Q&A mode if already active
-        resetContextualQAMode();
-        
-        // Update status
-        updateStatus('connecting', 'Getting page content...');
-        
         // Get the active tab
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+            if (tabs.length === 0) return;
+            
             const activeTab = tabs[0];
+            
+            // Show a message that we're fetching the page content
             const timestamp = new Date().toLocaleTimeString();
+            appendMessage('system', 'Fetching page content for contextual Q&A...', timestamp);
             
-            // Check if the URL is a restricted URL (chrome://, edge://, about:, etc.)
-            if (activeTab.url.startsWith('chrome://') || 
-                activeTab.url.startsWith('edge://') || 
-                activeTab.url.startsWith('about:') ||
-                activeTab.url.startsWith('chrome-extension://') ||
-                activeTab.url.startsWith('devtools://')) {
-                
-                // Show error message for restricted URLs
-                appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
-                appendMessage('system', 'Error: Cannot access content from ' + activeTab.url.split('/')[0] + '// URLs due to browser security restrictions.', timestamp);
-                appendMessage('system', 'Please navigate to a regular webpage to use the contextual Q&A feature.', timestamp);
-                updateStatus('offline', 'Cannot access this page type');
-                return;
-            }
-            
-            // Show a message that we're getting the page content
-            appendMessage('system', 'Getting content from: ' + activeTab.title, timestamp);
-            
-            // Execute script to get page content
-            chrome.scripting.executeScript({
-                target: {tabId: activeTab.id},
-                function: getPageContent
-            }, function(results) {
+            // Request the page content from the content script
+            chrome.tabs.sendMessage(activeTab.id, { action: 'getPageContent' }, function(response) {
                 if (chrome.runtime.lastError) {
-                    // Handle error
-                    const errorMessage = 'Error: ' + chrome.runtime.lastError.message;
-                    appendMessage('system', errorMessage, new Date().toLocaleTimeString());
-                    updateStatus('offline', 'Error getting page content');
+                    // Content script might not be injected yet
+                    appendMessage('system', 'Error: Could not access page content. Please refresh the page and try again.', timestamp);
                     return;
                 }
                 
-                if (!results || !results[0] || !results[0].result) {
-                    appendMessage('system', 'Error: Could not extract page content', new Date().toLocaleTimeString());
-                    updateStatus('offline', 'Error getting page content');
+                if (!response || !response.content) {
+                    appendMessage('system', 'Error: Could not retrieve page content.', timestamp);
                     return;
                 }
                 
-                const pageData = results[0].result;
+                // Get the page title and URL
+                const pageTitle = activeTab.title || 'Unknown page';
+                const pageUrl = activeTab.url || 'Unknown URL';
                 
                 // Store the page content in a global variable for later use
-                window.currentPageContent = pageData;
+                window.pageContext = {
+                    title: pageTitle,
+                    url: pageUrl,
+                    content: response.content.substring(0, 15000)  // Limit content to avoid token limits
+                };
                 
-                // Show a message that we're ready for questions
-                appendMessage('system', 'Page content loaded. You can now ask questions about this page.', new Date().toLocaleTimeString());
-                updateStatus('online', 'Ready for questions');
-                
-                // Focus the input field
-                userInput.focus();
-                userInput.placeholder = "Ask a question about this page...";
-                
-                // Change the send button behavior to handle contextual questions
+                // Set the contextual Q&A mode flag
                 window.isContextualQAMode = true;
+                
+                // Update UI to indicate we're in contextual Q&A mode
+                appendMessage('system', `Contextual Q&A mode activated for: "${pageTitle}"\n\nYou can now ask questions about this page. Type your question below.`, timestamp);
+                
+                // Update the placeholder text
+                userInput.placeholder = 'Ask a question about this page...';
+                
+                // Add a button to exit contextual Q&A mode
+                const exitButton = document.createElement('button');
+                exitButton.textContent = 'Exit Contextual Q&A';
+                exitButton.className = 'exit-contextual-qa';
+                exitButton.addEventListener('click', function() {
+                    window.isContextualQAMode = false;
+                    window.pageContext = null;
+                    userInput.placeholder = 'Type a message...';
+                    this.remove();
+                    appendMessage('system', 'Exited Contextual Q&A mode.', new Date().toLocaleTimeString());
+                });
+                
+                // Add the exit button to the chat container
+                chatContainer.appendChild(exitButton);
+                scrollToBottom();
             });
         });
     }
-    
-    // Function to handle contextual questions
+
     function handleContextualQuestion(question) {
-        if (!window.currentPageContent) {
-            appendMessage('system', 'Error: No page content loaded. Please click "Ask about this page" first.', new Date().toLocaleTimeString());
+        if (!window.pageContext) {
+            appendMessage('system', 'Error: Page context not available. Please restart Contextual Q&A mode.', new Date().toLocaleTimeString());
             return;
         }
         
-        // Show typing indicator
-        showTypingIndicator();
-        
-        // Create a prompt for the contextual question
-        const contextualPrompt = `The following is content from a webpage:
-        
-Title: ${window.currentPageContent.title}
-URL: ${window.currentPageContent.url}
+        // Create a prompt that includes the page context and the user's question
+        const prompt = `You are answering questions about the following webpage:
+
+Page Title: ${window.pageContext.title}
+URL: ${window.pageContext.url}
 
 Content:
-${window.currentPageContent.content.substring(0, 15000)}${window.currentPageContent.content.length > 15000 ? '... (content truncated due to length)' : ''}
+${window.pageContext.content}
 
-Based on the webpage content above, please answer the following question:
-${question}`;
+User Question: ${question}
+
+Please answer the question based on the webpage content. If the answer is not in the content, say so clearly.`;
         
-        // Send to Ollama for answering
-        chrome.runtime.sendMessage({
-            action: 'proxyOllamaRequest',
-            url: `${settings.serverUrl}/api/generate`,
-            method: 'POST',
-            body: {
-                model: settings.model,
-                prompt: contextualPrompt,
-                stream: false
-            }
-        }, function(response) {
-            // Remove typing indicator
-            removeTypingIndicator();
-            
-            if (response.success) {
-                // Check if the response was successful
-                if (response.data.status === 200) {
-                    // Add AI response to chat
-                    const aiTimestamp = new Date().toLocaleTimeString();
-                    const aiResponse = response.data.data.response;
-                    appendMessage('ai', aiResponse, aiTimestamp);
-                    
-                    // Save to chat history
-                    saveChatMessage('ai', aiResponse, aiTimestamp);
-                    
-                    // Update status
-                    updateStatus('online', 'Connected');
+        // Show typing indicator
+        const typingIndicator = showTypingIndicator();
+        
+        if (settings.enableStreaming) {
+            // Handle streaming response for contextual QA
+            handleStreamingResponse(prompt, typingIndicator);
+        } else {
+            // Use the background script to proxy the request to avoid CORS issues
+            chrome.runtime.sendMessage({
+                action: 'proxyOllamaRequest',
+                url: `${settings.serverUrl}/api/generate`,
+                method: 'POST',
+                body: {
+                    model: settings.model,
+                    prompt: prompt,
+                    stream: false
+                }
+            }, function(response) {
+                // Remove typing indicator
+                removeTypingIndicator();
+                
+                if (response.success) {
+                    // Check if the response was successful
+                    if (response.data.status === 200) {
+                        // Add AI response to chat
+                        const aiTimestamp = new Date().toLocaleTimeString();
+                        const aiResponse = response.data.data.response;
+                        appendMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Save to chat history
+                        saveChatMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Update status
+                        updateStatus('online', 'Connected');
+                    } else {
+                        // Handle error response from the server
+                        handleOllamaError({
+                            message: `Server returned ${response.data.status}: ${response.data.statusText}`,
+                            status: response.data.status,
+                            data: response.data.data
+                        });
+                    }
                 } else {
-                    // Handle error response from the server
+                    // Handle error in the proxy request
                     handleOllamaError({
-                        message: `Server returned ${response.data.status}: ${response.data.statusText}`,
-                        status: response.data.status,
-                        data: response.data.data
+                        message: response.error || 'Unknown error occurred',
+                        isConnectionError: true
                     });
                 }
-            } else {
-                // Handle error in the proxy request
-                handleOllamaError({
-                    message: response.error || 'Unknown error occurred',
-                    isConnectionError: true
-                });
-            }
-        });
+            });
+        }
     }
 });
