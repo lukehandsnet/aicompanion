@@ -2,7 +2,7 @@ import http.server
 import socketserver
 import os
 
-PORT = 52026  # Use the port provided in the runtime information
+PORT = 54468  # Use the port provided in the runtime information
 
 class CORSHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
