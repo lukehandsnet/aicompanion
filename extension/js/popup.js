@@ -341,7 +341,6 @@ document.addEventListener('DOMContentLoaded', function() {
         appendMessage('ai', errorMessage, errorTimestamp);
         updateStatus('offline', 'Error: ' + error.message);
     }
-    }
 
     function appendMessage(sender, text, timestamp) {
         const messageDiv = document.createElement('div');
@@ -439,7 +438,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 'debug:clear - Clear chat history\n' +
                 'debug:test - Test connection to Ollama server\n' +
                 'debug:models - Show available models\n' +
-                'debug:chat [message] - Test chat with detailed logging';
+                'debug:chat [message] - Test chat with detailed logging\n' +
+                'debug:ping - Simple ping test to Ollama server';
         } else if (command === 'debug:off') {
             debugMode = false;
             responseMessage = 'Debug mode disabled.';
@@ -563,6 +563,46 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             
             return; // Don't append another message
+        } else if (command === 'debug:ping') {
+            // Simple ping test to Ollama server
+            responseMessage = 'Pinging Ollama server...';
+            appendMessage('system', responseMessage, timestamp);
+            
+            // Use a simple fetch directly (not through the proxy) to test basic connectivity
+            fetch(`${settings.serverUrl}/api/tags`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                const pingResult = `Direct ping result: ${response.status} ${response.statusText}`;
+                appendMessage('system', pingResult, new Date().toLocaleTimeString());
+                
+                // Now try with the proxy
+                appendMessage('system', 'Pinging through proxy...', new Date().toLocaleTimeString());
+                
+                chrome.runtime.sendMessage({
+                    action: 'proxyOllamaRequest',
+                    url: `${settings.serverUrl}/api/tags`,
+                    method: 'GET'
+                }, function(proxyResponse) {
+                    const proxyResult = `Proxy ping result: ${proxyResponse.success ? 'Success' : 'Failed'}`;
+                    appendMessage('system', proxyResult, new Date().toLocaleTimeString());
+                    
+                    if (proxyResponse.success) {
+                        appendMessage('system', `Status: ${proxyResponse.data.status} ${proxyResponse.data.statusText}`, new Date().toLocaleTimeString());
+                    } else {
+                        appendMessage('system', `Error: ${proxyResponse.error}`, new Date().toLocaleTimeString());
+                    }
+                });
+            })
+            .catch(error => {
+                const errorMessage = `Direct ping error: ${error.message}`;
+                appendMessage('system', errorMessage, new Date().toLocaleTimeString());
+            });
+            
+            return; // Don't append another message
         } else if (command.startsWith('debug:chat ')) {
             // Test chat with a simple message
             const testMessage = command.substring('debug:chat '.length);
@@ -641,7 +681,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 'debug:clear - Clear chat history\n' +
                 'debug:test - Test connection to Ollama server\n' +
                 'debug:models - Show available models\n' +
-                'debug:chat [message] - Test chat with detailed logging';
+                'debug:chat [message] - Test chat with detailed logging\n' +
+                'debug:ping - Simple ping test to Ollama server';
         }
         
         appendMessage('system', responseMessage, timestamp);
