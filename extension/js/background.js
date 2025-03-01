@@ -213,6 +213,11 @@ async function proxyOllamaRequest(url, method, body) {
     try {
         console.log('Starting proxy request to:', url);
         
+        // Check if URL is valid
+        if (!url || !url.startsWith('http')) {
+            throw new Error(`Invalid URL: ${url}`);
+        }
+        
         const options = {
             method: method || 'GET',
             headers: {
@@ -222,36 +227,148 @@ async function proxyOllamaRequest(url, method, body) {
         
         if (body && (method === 'POST' || method === 'PUT')) {
             options.body = JSON.stringify(body);
+            console.log('Request body type:', typeof body);
             console.log('Request body:', options.body);
+            
+            // Validate model parameter for generate requests
+            if (url.includes('/api/generate') && (!body.model || typeof body.model !== 'string')) {
+                console.error('Invalid or missing model parameter:', body.model);
+            }
         }
         
         console.log('Fetch options:', options);
         
-        const response = await fetch(url, options);
-        console.log('Response received:', response.status, response.statusText);
-        
-        // Handle different response types
-        const contentType = response.headers.get('content-type');
-        console.log('Response content type:', contentType);
-        
-        if (contentType && contentType.includes('application/json')) {
-            console.log('Processing as JSON response');
-            const jsonResponse = await response.json();
-            console.log('JSON response data:', jsonResponse);
-            return {
-                status: response.status,
-                statusText: response.statusText,
-                data: jsonResponse
-            };
-        } else {
-            console.log('Processing as text response');
-            const textResponse = await response.text();
-            console.log('Text response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
-            return {
-                status: response.status,
-                statusText: response.statusText,
-                data: textResponse
-            };
+        try {
+            const response = await fetch(url, options);
+            console.log('Response received:', response.status, response.statusText);
+            
+            // Handle different response types
+            const contentType = response.headers.get('content-type');
+            console.log('Response content type:', contentType);
+            
+            // Special handling for Ollama's streaming response format (NDJSON)
+            if (contentType && (contentType.includes('application/json') || contentType.includes('application/x-ndjson'))) {
+                console.log('Processing as JSON response');
+                try {
+                    // For generate API with non-streaming mode
+                    if (url.includes('/api/generate') && !body.stream) {
+                        const jsonResponse = await response.json();
+                        console.log('JSON response data:', jsonResponse);
+                        return {
+                            status: response.status,
+                            statusText: response.statusText,
+                            data: jsonResponse
+                        };
+                    } 
+                    // For streaming responses or NDJSON format, we need to handle differently
+                    else if (contentType.includes('application/x-ndjson') || body.stream) {
+                        const textResponse = await response.text();
+                        console.log('NDJSON response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
+                        
+                        // For summarization, we need to extract the full response from the NDJSON
+                        // NDJSON format is multiple JSON objects separated by newlines
+                        const lines = textResponse.split('\n').filter(line => line.trim());
+                        let fullResponse = '';
+                        
+                        for (const line of lines) {
+                            try {
+                                const data = JSON.parse(line);
+                                if (data.response) {
+                                    fullResponse += data.response;
+                                }
+                            } catch (e) {
+                                console.error('Error parsing NDJSON line:', e, line);
+                            }
+                        }
+                        
+                        console.log('Extracted full response from NDJSON:', fullResponse.substring(0, 100) + (fullResponse.length > 100 ? '...' : ''));
+                        
+                        // Return in a format that popup.js expects
+                        return {
+                            status: response.status,
+                            statusText: response.statusText,
+                            data: {
+                                response: fullResponse
+                            }
+                        };
+                    } else {
+                        const jsonResponse = await response.json();
+                        console.log('JSON response data:', jsonResponse);
+                        return {
+                            status: response.status,
+                            statusText: response.statusText,
+                            data: jsonResponse
+                        };
+                    }
+                } catch (jsonError) {
+                    console.error('Error parsing JSON response:', jsonError);
+                    const textFallback = await response.text();
+                    console.log('Response as text (fallback):', textFallback.substring(0, 100) + (textFallback.length > 100 ? '...' : ''));
+                    throw new Error(`Failed to parse JSON response: ${jsonError.message}`);
+                }
+            } else {
+                console.log('Processing as text response');
+                const textResponse = await response.text();
+                console.log('Text response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
+                
+                // Try to parse as JSON anyway in case content-type is wrong
+                try {
+                    if (textResponse.trim().startsWith('{') && textResponse.trim().endsWith('}')) {
+                        const jsonData = JSON.parse(textResponse);
+                        console.log('Successfully parsed text as JSON:', jsonData);
+                        return {
+                            status: response.status,
+                            statusText: response.statusText,
+                            data: jsonData
+                        };
+                    } else if (textResponse.includes('\n')) {
+                        // This might be NDJSON format
+                        const lines = textResponse.split('\n').filter(line => line.trim());
+                        let fullResponse = '';
+                        
+                        for (const line of lines) {
+                            try {
+                                if (line.trim()) {
+                                    const data = JSON.parse(line);
+                                    if (data.response) {
+                                        fullResponse += data.response;
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('Error parsing potential NDJSON line:', e, line);
+                            }
+                        }
+                        
+                        if (fullResponse) {
+                            console.log('Extracted response from text as NDJSON:', fullResponse.substring(0, 100) + (fullResponse.length > 100 ? '...' : ''));
+                            return {
+                                status: response.status,
+                                statusText: response.statusText,
+                                data: {
+                                    response: fullResponse
+                                }
+                            };
+                        }
+                    }
+                    
+                    // Not JSON or NDJSON, return as text
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: textResponse
+                    };
+                } catch (e) {
+                    // Not JSON, return as text
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: textResponse
+                    };
+                }
+            }
+        } catch (fetchError) {
+            console.error('Fetch error:', fetchError);
+            throw new Error(`Network error: ${fetchError.message}`);
         }
     } catch (error) {
         console.error('Error proxying request to Ollama server:', error);

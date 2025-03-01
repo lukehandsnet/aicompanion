@@ -652,6 +652,10 @@ ${response.content.substring(0, 15000)}`;  // Limit content to avoid token limit
                 showTypingIndicator();
                 
                 // Use the background script to proxy the request to avoid CORS issues
+                console.log('Sending summarization request to Ollama server:', settings.serverUrl);
+                console.log('Using model:', settings.model);
+                console.log('Streaming enabled:', settings.enableStreaming);
+                
                 chrome.runtime.sendMessage({
                     action: 'proxyOllamaRequest',
                     url: `${settings.serverUrl}/api/generate`,
@@ -665,12 +669,65 @@ ${response.content.substring(0, 15000)}`;  // Limit content to avoid token limit
                     // Remove typing indicator
                     removeTypingIndicator();
                     
+                    console.log('Received response from background script:', response);
+                    
+                    if (!response) {
+                        console.error('No response received from background script');
+                        appendMessage('system', 'Error: No response received from the server.', timestamp);
+                        return;
+                    }
+                    
                     if (response.success) {
                         // Check if the response was successful
-                        if (response.data.status === 200) {
+                        console.log('Response successful, status:', response.data?.status);
+                        
+                        if (response.data && response.data.status === 200) {
                             // Add AI response to chat
                             const aiTimestamp = new Date().toLocaleTimeString();
-                            const aiResponse = response.data.data.response;
+                            
+                            // Check if response data is properly formatted
+                            let aiResponse = '';
+                            
+                            // Handle different response formats
+                            if (response.data.data && response.data.data.response) {
+                                // Standard JSON response format
+                                aiResponse = response.data.data.response;
+                                console.log('Using standard JSON response format');
+                            } else if (response.data.response) {
+                                // Direct response format (from our NDJSON handler)
+                                aiResponse = response.data.response;
+                                console.log('Using direct response format');
+                            } else if (typeof response.data === 'string') {
+                                // Raw string response
+                                try {
+                                    // Try to parse as JSON
+                                    const jsonData = JSON.parse(response.data);
+                                    if (jsonData.response) {
+                                        aiResponse = jsonData.response;
+                                        console.log('Parsed string response as JSON');
+                                    } else {
+                                        // Use the string as is
+                                        aiResponse = response.data;
+                                        console.log('Using raw string response');
+                                    }
+                                } catch (e) {
+                                    // Use the string as is
+                                    aiResponse = response.data;
+                                    console.log('Using raw string response (JSON parse failed)');
+                                }
+                            } else {
+                                console.error('Response data is missing expected format:', response.data);
+                                appendMessage('system', 'Error: Received malformed response from the server.', timestamp);
+                                return;
+                            }
+                            
+                            if (!aiResponse) {
+                                console.error('Empty AI response after processing');
+                                appendMessage('system', 'Error: Received empty response from the server.', timestamp);
+                                return;
+                            }
+                            console.log('AI response received, length:', aiResponse.length);
+                            
                             appendMessage('ai', aiResponse, aiTimestamp);
                             
                             // Save to chat history
@@ -680,14 +737,16 @@ ${response.content.substring(0, 15000)}`;  // Limit content to avoid token limit
                             updateStatus('online', 'Connected');
                         } else {
                             // Handle error response from the server
+                            console.error('Server returned error status:', response.data?.status);
                             handleOllamaError({
-                                message: `Server returned ${response.data.status}: ${response.data.statusText}`,
-                                status: response.data.status,
-                                data: response.data.data
+                                message: `Server returned ${response.data?.status}: ${response.data?.statusText}`,
+                                status: response.data?.status,
+                                data: response.data?.data
                             });
                         }
                     } else {
                         // Handle error in the proxy request
+                        console.error('Proxy request failed:', response.error);
                         handleOllamaError({
                             message: response.error || 'Unknown error occurred',
                             isConnectionError: true
