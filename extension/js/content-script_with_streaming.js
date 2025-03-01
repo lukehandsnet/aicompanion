@@ -469,6 +469,10 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
             // Show error
             showErrorInPopup(message.error || 'Unknown error occurred');
         }
+    } else if (message.action === 'getPageContent') {
+        // Extract the page content
+        const pageContent = document.body.innerText || document.body.textContent || '';
+        sendResponse({ content: pageContent });
     }
     return true;
 });
