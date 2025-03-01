@@ -342,12 +342,24 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStatus('offline', 'Error: ' + error.message);
     }
 
+    // Function to remove <think>blah</think> blocks from text
+    function removeThinkBlocks(text) {
+        if (!text) return text;
+        // Use regex to remove all <think>...</think> blocks
+        return text.replace(/<think>[\s\S]*?<\/think>/g, '');
+    }
+
     function appendMessage(sender, text, timestamp) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${sender}-message`;
         
         const messageText = document.createElement('div');
         messageText.className = 'message-text';
+        
+        // Process text to remove <think> blocks if it's an AI message
+        if (sender === 'ai') {
+            text = removeThinkBlocks(text);
+        }
         
         // Handle multi-line text (especially for error messages)
         if (text.includes('\n')) {
@@ -404,6 +416,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function saveChatMessage(sender, text, timestamp) {
+        // Process text to remove <think> blocks if it's an AI message
+        if (sender === 'ai') {
+            text = removeThinkBlocks(text);
+        }
+        
         chrome.storage.local.get(['chatHistory'], function(result) {
             let chatHistory = result.chatHistory || [];
             chatHistory.push({
