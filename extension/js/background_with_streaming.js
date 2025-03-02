@@ -254,7 +254,7 @@ async function proxyOllamaRequest(url, method, body) {
             console.log('Processing as JSON response');
             try {
                 // For generate API with non-streaming mode
-                if (url.includes('/api/generate') && !body.stream) {
+                if (url.includes('/api/generate') && body && !body.stream) {
                     const jsonResponse = await response.json();
                     console.log('JSON response data:', jsonResponse);
                     return {
@@ -264,7 +264,7 @@ async function proxyOllamaRequest(url, method, body) {
                     };
                 }
                 // For streaming responses or NDJSON format, we need to handle differently
-                else if (contentType.includes('application/x-ndjson') || body.stream) {
+                else if (contentType.includes('application/x-ndjson') || (body && body.stream)) {
                     const textResponse = await response.text();
                     console.log('NDJSON response data:', textResponse.substring(0, 100) + (textResponse.length > 100 ? '...' : ''));
 
@@ -294,7 +294,19 @@ async function proxyOllamaRequest(url, method, body) {
                             response: fullResponse
                         }
                     };
-                } else {
+                } 
+                // For regular JSON responses like /api/tags
+                else if (url.includes('/api/tags')) {
+                    const jsonResponse = await response.json();
+                    console.log('Tags API response data:', jsonResponse);
+                    return {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: jsonResponse
+                    };
+                }
+                // Default JSON handling
+                else {
                     const jsonResponse = await response.json();
                     console.log('JSON response data:', jsonResponse);
                     return {

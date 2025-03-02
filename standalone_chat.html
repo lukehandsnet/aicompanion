@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Companion - Standalone</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            min-height: 100vh;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .settings-icon {
+            cursor: pointer;
+            font-size: 24px;
+        }
+        
+        .settings-panel {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .settings-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 500px;
+        }
+        
+        .setting-item {
+            margin-bottom: 15px;
+        }
+        
+        .setting-item label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .setting-item input, .setting-item select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .setting-item button {
+            background-color: #4a6fa5;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .chat-container {
+            margin-bottom: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        
+        .user-message {
+            background-color: #e6f7ff;
+            margin-left: 20px;
+        }
+        
+        .ai-message {
+            background-color: #f0f0f0;
+            margin-right: 20px;
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .sender-icon {
+            font-weight: bold;
+        }
+        
+        .message-text {
+            white-space: pre-wrap;
+        }
+        
+        .input-container {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        
+        .input-container textarea {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            resize: vertical;
+            min-height: 40px;
+        }
+        
+        .input-container button {
+            background-color: #4a6fa5;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+        
+        .status-bar {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .online {
+            background-color: #52c41a;
+        }
+        
+        .offline {
+            background-color: #f5222d;
+        }
+        
+        .connecting {
+            background-color: #faad14;
+        }
+        
+        .toggle-container {
+            display: flex;
+            align-items: center;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+            margin-right: 10px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background-color: #4a6fa5;
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+        
+        .streaming-response {
+            white-space: pre-wrap;
+        }
+        
+        .typing-indicator {
+            display: flex;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+            margin-right: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .typing-indicator span {
+            height: 10px;
+            width: 10px;
+            margin: 0 1px;
+            background-color: #9E9EA1;
+            display: block;
+            border-radius: 50%;
+            opacity: 0.4;
+        }
+        
+        .typing-indicator span:nth-of-type(1) {
+            animation: 1s blink infinite 0.3333s;
+        }
+        
+        .typing-indicator span:nth-of-type(2) {
+            animation: 1s blink infinite 0.6666s;
+        }
+        
+        .typing-indicator span:nth-of-type(3) {
+            animation: 1s blink infinite 0.9999s;
+        }
+        
+        @keyframes blink {
+            50% {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>AI Companion - Standalone</h1>
+            <div class="settings-icon" id="settingsButton">⚙️</div>
+        </div>
+        
+        <div class="settings-panel" id="settingsPanel">
+            <div class="settings-content">
+                <h2>Settings</h2>
+                <div class="setting-item">
+                    <label for="serverUrl">Ollama Server URL:</label>
+                    <input type="text" id="serverUrl" placeholder="http://localhost:11434">
+                </div>
+                <div class="setting-item">
+                    <label for="modelSelect">Model:</label>
+                    <select id="modelSelect">
+                        <option value="llama2">Llama 2</option>
+                        <option value="mistral">Mistral</option>
+                        <option value="gemma">Gemma</option>
+                    </select>
+                </div>
+                <div class="setting-item toggle-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="streamingToggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <span>Enable Streaming Responses</span>
+                </div>
+                <div class="setting-item">
+                    <button id="saveSettings">Save Settings</button>
+                </div>
+                <div class="setting-item">
+                    <button id="refreshModels">Refresh Available Models</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <!-- Chat messages will be inserted here -->
+        </div>
+        
+        <div class="input-container">
+            <textarea id="userInput" placeholder="Type your message here..."></textarea>
+            <button id="sendButton">Send</button>
+        </div>
+
+        <div class="status-bar">
+            <span id="statusIndicator" class="status-indicator offline"></span>
+            <span id="statusText">Disconnected</span>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM Elements
+            const chatContainer = document.getElementById('chatContainer');
+            const userInput = document.getElementById('userInput');
+            const sendButton = document.getElementById('sendButton');
+            const settingsButton = document.getElementById('settingsButton');
+            const settingsPanel = document.getElementById('settingsPanel');
+            const saveSettingsButton = document.getElementById('saveSettings');
+            const serverUrlInput = document.getElementById('serverUrl');
+            const modelSelect = document.getElementById('modelSelect');
+            const refreshModelsButton = document.getElementById('refreshModels');
+            const statusIndicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            const streamingToggle = document.getElementById('streamingToggle');
+            
+            // Settings
+            let settings = {
+                serverUrl: 'http://localhost:11434',
+                model: 'llama2',
+                enableStreaming: true
+            };
+            
+            // Load settings from localStorage
+            const savedSettings = localStorage.getItem('aiCompanionSettings');
+            if (savedSettings) {
+                settings = JSON.parse(savedSettings);
+                serverUrlInput.value = settings.serverUrl;
+                modelSelect.value = settings.model;
+                streamingToggle.checked = settings.enableStreaming;
+            } else {
+                serverUrlInput.value = settings.serverUrl;
+                streamingToggle.checked = true;
+            }
+            
+            // Check connection to Ollama server
+            checkServerConnection();
+            
+            // Load chat history
+            const savedChatHistory = localStorage.getItem('aiCompanionChatHistory');
+            if (savedChatHistory) {
+                const chatHistory = JSON.parse(savedChatHistory);
+                chatHistory.forEach(message => {
+                    appendMessage(message.sender, message.text, message.timestamp);
+                });
+                scrollToBottom();
+            }
+            
+            // Event Listeners
+            settingsButton.addEventListener('click', toggleSettings);
+            saveSettingsButton.addEventListener('click', saveSettings);
+            sendButton.addEventListener('click', sendMessage);
+            refreshModelsButton.addEventListener('click', fetchAvailableModels);
+            
+            userInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            // Auto-resize textarea
+            userInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight) + 'px';
+            });
+            
+            // Functions
+            function toggleSettings() {
+                if (settingsPanel.style.display === 'flex') {
+                    settingsPanel.style.display = 'none';
+                } else {
+                    settingsPanel.style.display = 'flex';
+                }
+            }
+            
+            function saveSettings() {
+                settings.serverUrl = serverUrlInput.value.trim();
+                settings.model = modelSelect.value;
+                settings.enableStreaming = streamingToggle.checked;
+                
+                localStorage.setItem('aiCompanionSettings', JSON.stringify(settings));
+                checkServerConnection();
+                settingsPanel.style.display = 'none';
+            }
+            
+            function checkServerConnection() {
+                updateStatus('connecting', 'Connecting...');
+                
+                fetch(`${settings.serverUrl}/api/tags`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                    }
+                })
+                .then(data => {
+                    updateStatus('online', 'Connected');
+                    populateModelSelect(data.models);
+                })
+                .catch(error => {
+                    console.error('Error connecting to Ollama server:', error);
+                    updateStatus('offline', 'Cannot reach server');
+                });
+            }
+            
+            function updateStatus(status, message) {
+                statusIndicator.className = 'status-indicator ' + status;
+                statusText.textContent = message;
+            }
+            
+            function fetchAvailableModels() {
+                updateStatus('connecting', 'Fetching models...');
+                
+                fetch(`${settings.serverUrl}/api/tags`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    } else {
+                        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                    }
+                })
+                .then(data => {
+                    if (data.models && data.models.length > 0) {
+                        populateModelSelect(data.models);
+                        updateStatus('online', `Found ${data.models.length} models`);
+                    } else {
+                        populateModelSelect([]);
+                        updateStatus('online', 'No models found');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching models:', error);
+                    updateStatus('offline', 'Cannot reach server');
+                });
+            }
+            
+            function populateModelSelect(models) {
+                // Clear existing options
+                modelSelect.innerHTML = '';
+                
+                // Add available models
+                if (models && models.length > 0) {
+                    models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.name;
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    // Set the current model if it exists in the list, otherwise use the first model
+                    const modelExists = Array.from(modelSelect.options).some(option => option.value === settings.model);
+                    modelSelect.value = modelExists ? settings.model : modelSelect.options[0].value;
+                } else {
+                    // Add default options if no models are available
+                    const defaultModels = ['llama2', 'mistral', 'gemma'];
+                    defaultModels.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        modelSelect.appendChild(option);
+                    });
+                    modelSelect.value = settings.model;
+                }
+            }
+            
+            function sendMessage() {
+                const message = userInput.value.trim();
+                if (!message) return;
+                
+                // Add user message to chat
+                const timestamp = new Date().toLocaleTimeString();
+                appendMessage('user', message, timestamp);
+                
+                // Save to chat history
+                saveChatMessage('user', message, timestamp);
+                
+                // Clear input
+                userInput.value = '';
+                userInput.style.height = 'auto';
+                
+                // Show typing indicator
+                const typingIndicator = showTypingIndicator();
+                
+                if (settings.enableStreaming) {
+                    // Handle streaming response
+                    handleStreamingResponse(message, typingIndicator);
+                } else {
+                    // Non-streaming response
+                    fetch(`${settings.serverUrl}/api/generate`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            model: settings.model,
+                            prompt: message,
+                            stream: false
+                        })
+                    })
+                    .then(response => {
+                        if (response.ok) {
+                            return response.json();
+                        } else {
+                            throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                        }
+                    })
+                    .then(data => {
+                        // Remove typing indicator
+                        removeTypingIndicator();
+                        
+                        // Add AI response to chat
+                        const aiTimestamp = new Date().toLocaleTimeString();
+                        const aiResponse = data.response;
+                        appendMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Save to chat history
+                        saveChatMessage('ai', aiResponse, aiTimestamp);
+                        
+                        // Update status
+                        updateStatus('online', 'Connected');
+                    })
+                    .catch(error => {
+                        // Remove typing indicator
+                        removeTypingIndicator();
+                        
+                        console.error('Error generating response:', error);
+                        updateStatus('offline', 'Error: ' + error.message);
+                    });
+                }
+            }
+            
+            // Handle streaming response
+            function handleStreamingResponse(message, typingIndicator) {
+                // Create a message element for the streaming response
+                const aiTimestamp = new Date().toLocaleTimeString();
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message ai-message';
+                
+                const messageHeader = document.createElement('div');
+                messageHeader.className = 'message-header';
+                
+                const senderIcon = document.createElement('div');
+                senderIcon.className = 'sender-icon';
+                senderIcon.textContent = 'AI';
+                
+                const timestampSpan = document.createElement('div');
+                timestampSpan.className = 'timestamp';
+                timestampSpan.textContent = aiTimestamp;
+                
+                messageHeader.appendChild(senderIcon);
+                messageHeader.appendChild(timestampSpan);
+                
+                const messageText = document.createElement('div');
+                messageText.className = 'message-text streaming-response';
+                
+                messageDiv.appendChild(messageHeader);
+                messageDiv.appendChild(messageText);
+                
+                // Remove typing indicator and add the streaming message
+                if (typingIndicator) {
+                    chatContainer.removeChild(typingIndicator);
+                }
+                chatContainer.appendChild(messageDiv);
+                scrollToBottom();
+                
+                // Start the streaming request
+                let fullResponse = '';
+                
+                fetch(`${settings.serverUrl}/api/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: settings.model,
+                        prompt: message,
+                        stream: true
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+                    }
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    
+                    function readStream() {
+                        return reader.read().then(({ done, value }) => {
+                            if (done) {
+                                // Save to chat history when stream is complete
+                                saveChatMessage('ai', fullResponse, aiTimestamp);
+                                return;
+                            }
+                            
+                            // Decode the chunk
+                            const chunk = decoder.decode(value, { stream: true });
+                            
+                            // Process the chunk (each chunk may contain multiple JSON objects)
+                            const lines = chunk.split('\n').filter(line => line.trim());
+                            
+                            for (const line of lines) {
+                                try {
+                                    const data = JSON.parse(line);
+                                    if (data.response) {
+                                        fullResponse += data.response;
+                                        // Update the message text with the current full response
+                                        messageText.textContent = fullResponse;
+                                        scrollToBottom();
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing JSON:', e, line);
+                                }
+                            }
+                            
+                            // Continue reading the stream
+                            return readStream();
+                        });
+                    }
+                    
+                    return readStream();
+                })
+                .catch(error => {
+                    console.error('Error in streaming response:', error);
+                    messageText.textContent = `Error: ${error.message}`;
+                    updateStatus('offline', 'Error: ' + error.message);
+                });
+            }
+            
+            function showTypingIndicator() {
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'typing-indicator';
+                
+                for (let i = 0; i < 3; i++) {
+                    const dot = document.createElement('span');
+                    typingDiv.appendChild(dot);
+                }
+                
+                chatContainer.appendChild(typingDiv);
+                scrollToBottom();
+                
+                return typingDiv;
+            }
+            
+            function removeTypingIndicator() {
+                const typingIndicator = document.querySelector('.typing-indicator');
+                if (typingIndicator) {
+                    chatContainer.removeChild(typingIndicator);
+                }
+            }
+            
+            function appendMessage(sender, text, timestamp) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${sender}-message`;
+                
+                const messageHeader = document.createElement('div');
+                messageHeader.className = 'message-header';
+                
+                const senderIcon = document.createElement('div');
+                senderIcon.className = 'sender-icon';
+                senderIcon.textContent = sender === 'user' ? 'You' : 'AI';
+                
+                const timestampSpan = document.createElement('div');
+                timestampSpan.className = 'timestamp';
+                timestampSpan.textContent = timestamp;
+                
+                messageHeader.appendChild(senderIcon);
+                messageHeader.appendChild(timestampSpan);
+                
+                const messageText = document.createElement('div');
+                messageText.className = 'message-text';
+                messageText.textContent = text;
+                
+                messageDiv.appendChild(messageHeader);
+                messageDiv.appendChild(messageText);
+                
+                chatContainer.appendChild(messageDiv);
+                scrollToBottom();
+            }
+            
+            function scrollToBottom() {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+            
+            function saveChatMessage(sender, text, timestamp) {
+                let chatHistory = [];
+                const savedChatHistory = localStorage.getItem('aiCompanionChatHistory');
+                
+                if (savedChatHistory) {
+                    chatHistory = JSON.parse(savedChatHistory);
+                }
+                
+                chatHistory.push({
+                    sender: sender,
+                    text: text,
+                    timestamp: timestamp
+                });
+                
+                localStorage.setItem('aiCompanionChatHistory', JSON.stringify(chatHistory));
+            }
+        });
+    </script>
+</body>
+</html>
