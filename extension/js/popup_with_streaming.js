@@ -95,8 +95,24 @@ document.addEventListener('DOMContentLoaded', function() {
         chrome.storage.local.set({ settings: settings }, function() {
             checkServerConnection();
             settingsPanel.style.display = 'none';
+            
+            // Notify all content scripts about the settings update
+            chrome.tabs.query({}, function(tabs) {
+                tabs.forEach(function(tab) {
+                    try {
+                        chrome.tabs.sendMessage(tab.id, {
+                            action: 'settingsUpdated',
+                            settings: settings
+                        });
+                    } catch (e) {
+                        // Ignore errors for tabs where content script isn't loaded
+                        console.log('Could not send settings update to tab:', tab.id);
+                    }
+                });
+            });
         });
     }
+    
 
     function checkServerConnection() {
         updateStatus('connecting', 'Connecting...');
@@ -340,7 +356,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const senderIcon = document.createElement('div');
         senderIcon.className = 'sender-icon';
-        senderIcon.textContent = 'AI';
+        
+        // Use the model name from settings (with capitalized first letter)
+        const modelName = settings.model.charAt(0).toUpperCase() + settings.model.slice(1);
+        senderIcon.textContent = modelName;
         
         const timestampSpan = document.createElement('div');
         timestampSpan.className = 'timestamp';
@@ -363,8 +382,7 @@ document.addEventListener('DOMContentLoaded', function() {
         scrollToBottom();
         
         // Start the streaming request
-        let fullResponse = '';
-        
+        let fullResponse = '';    
         // Use fetch directly for streaming
         fetch(`${settings.serverUrl}/api/generate`, {
             method: 'POST',
@@ -497,7 +515,17 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const senderIcon = document.createElement('div');
         senderIcon.className = 'sender-icon';
-        senderIcon.textContent = sender === 'user' ? 'You' : 'AI';
+        
+        // Use model name instead of "AI" for AI messages
+        if (sender === 'user') {
+            senderIcon.textContent = 'You';
+        } else if (sender === 'ai') {
+            // Use the model name from settings (with capitalized first letter)
+            const modelName = settings.model.charAt(0).toUpperCase() + settings.model.slice(1);
+            senderIcon.textContent = modelName;
+        } else {
+            senderIcon.textContent = sender.charAt(0).toUpperCase() + sender.slice(1);
+        }
         
         const timestampSpan = document.createElement('div');
         timestampSpan.className = 'timestamp';
@@ -548,7 +576,10 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const senderIcon = document.createElement('div');
         senderIcon.className = 'sender-icon';
-        senderIcon.textContent = 'AI';
+        
+        // Use the model name from settings (with capitalized first letter)
+        const modelName = settings.model.charAt(0).toUpperCase() + settings.model.slice(1);
+        senderIcon.textContent = modelName;
         
         messageHeader.appendChild(senderIcon);
         

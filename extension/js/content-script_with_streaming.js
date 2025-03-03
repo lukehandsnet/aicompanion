@@ -6,6 +6,18 @@ let currentTextField = null;
 let grammarCheckerMenu = null;
 let currentStreamingPopup = null;
 
+let currentModel = ''; // Variable to store the current model name
+
+// Add this request to get the current model when the content script loads
+chrome.storage.local.get(['settings'], function(result) {
+    if (result.settings && result.settings.model) {
+        currentModel = result.settings.model;
+    } else {
+        // Default model if not set
+        currentModel = 'llama2';
+    }
+});
+
 // Create and inject the grammar checker menu
 function createGrammarCheckerMenu() {
     // Check if menu already exists
@@ -304,7 +316,10 @@ function processTextWithAI(text, mode, title) {
     
     const titleElement = document.createElement('div');
     titleElement.className = 'ai-companion-result-title';
-    titleElement.textContent = title;
+    
+    // Include model name in the title
+    const modelName = currentModel.charAt(0).toUpperCase() + currentModel.slice(1);
+    titleElement.textContent = `${modelName}: ${title}`;
     
     const closeButton = document.createElement('button');
     closeButton.className = 'ai-companion-result-close';
@@ -316,7 +331,7 @@ function processTextWithAI(text, mode, title) {
             action: 'cancelStream'
         });
     });
-    
+
     header.appendChild(titleElement);
     header.appendChild(closeButton);
     
@@ -566,6 +581,21 @@ document.addEventListener('contextmenu', function(event) {
         // Hide the menu if clicking elsewhere
         hideGrammarCheckerMenu();
     }
+});
+
+// Also, update your message listener to get updates when settings change
+chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
+    if (message.action === 'streamUpdate') {
+        // Existing code...
+    } else if (message.action === 'getPageContent') {
+        // Existing code...
+    } else if (message.action === 'settingsUpdated') {
+        // Update the current model when settings change
+        if (message.settings && message.settings.model) {
+            currentModel = message.settings.model;
+        }
+    }
+    return true;
 });
 
 // Initialize the menu when the content script loads
